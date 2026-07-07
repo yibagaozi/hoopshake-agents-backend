@@ -5,17 +5,11 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>com.cnsportiot</groupId>
-        <artifactId>hoopshake-agents-backend</artifactId>
+        <artifactId>edge</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
 
-    <artifactId>edge</artifactId>
-    <packaging>pom</packaging>
-
-    <modules>
-        <module>perception-core</module>
-        <module>edge-host</module>
-    </modules>
+    <artifactId>edge-host</artifactId>
 
     <properties>
         <maven.compiler.source>25</maven.compiler.source>
