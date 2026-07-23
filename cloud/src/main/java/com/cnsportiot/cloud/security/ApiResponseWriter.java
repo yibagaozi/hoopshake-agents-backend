@@ -3,7 +3,7 @@ package com.cnsportiot.cloud.security;
 import com.cnsportiot.cloud.common.ApiResponse;
 import com.cnsportiot.cloud.common.ErrorInfo;
 import com.cnsportiot.cloud.exception.ErrorCode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;

@@ -6,3 +6,9 @@ spring:
     username: ${DB_USER}
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
+
+hoopshake:
+  jwt:
+    secret: ${JWT_SECRET}
+  ingest:
+    service-token: ${INGEST_SERVICE_TOKEN}
