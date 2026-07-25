@@ -5,9 +5,11 @@ import com.cnsportiot.cloud.service.AuthService;
 import com.cnsportiot.cloud.common.ApiResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.TokenResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.UserProfileResponse;
+import com.cnsportiot.cloud.dto.response.AuthDtos.RegisterResponse;
 import com.cnsportiot.cloud.dto.request.AuthRequests.LoginRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.LogoutRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.RefreshTokenRequest;
+import com.cnsportiot.cloud.dto.request.AuthRequests.RegisterRequest;
 import com.cnsportiot.cloud.security.AuthUser;
 import com.cnsportiot.cloud.annotation.CurrentUser;
 import com.cnsportiot.cloud.annotation.RequireAuth;
@@ -46,5 +48,10 @@ public class AuthController {
     @RequireAuth
     public ApiResponse<UserProfileResponse> me(@CurrentUser AuthUser current) {
         return ApiResponse.ok(authService.me(current));
+    }
+
+    @PostMapping("/register")
+    public ApiResponse<RegisterResponse> register(@Valid @RequestBody RegisterRequest request) {
+        return ApiResponse.ok(authService.register(request));
     }
 }

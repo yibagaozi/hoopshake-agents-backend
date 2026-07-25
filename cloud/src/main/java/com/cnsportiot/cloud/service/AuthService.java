@@ -1,6 +1,8 @@
 package com.cnsportiot.cloud.service;
 
 import com.cnsportiot.cloud.dto.request.AuthRequests.LoginRequest;
+import com.cnsportiot.cloud.dto.request.AuthRequests.RegisterRequest;
+import com.cnsportiot.cloud.dto.response.AuthDtos.RegisterResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.TokenResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.UserProfileResponse;
 import com.cnsportiot.cloud.security.AuthUser;
@@ -19,4 +21,7 @@ public interface AuthService {
 
     /** 2.4 当前用户 */
     UserProfileResponse me(AuthUser current);
+
+    /** 2.5 教师注册 */
+    RegisterResponse register(RegisterRequest request);
 }

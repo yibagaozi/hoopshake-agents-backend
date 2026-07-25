@@ -40,5 +40,13 @@ public final class AuthDtos {
             UUID studentId,      // 仅 STUDENT
             String studentNo,
             String displayName) {}
+
+    /** 2.5 教师注册 */
+    public record RegisterResponse(
+            UUID accountId,
+            String username,
+            Role role,
+            AccountStatus status,
+            String staffNo) {}
 }
 

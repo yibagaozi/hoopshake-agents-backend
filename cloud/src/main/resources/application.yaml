@@ -12,3 +12,6 @@ hoopshake:
     secret: ${JWT_SECRET}
   ingest:
     service-token: ${INGEST_SERVICE_TOKEN}
+  register:
+    enabled: true
+    invite-code: ${REGISTER_INVITE_CODE:hoopshake-invite}

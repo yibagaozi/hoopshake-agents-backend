@@ -34,6 +34,9 @@ public class Account extends AuditableEntity {
     @Column(name = "staff_no", unique = true, length = 32)
     private String staffNo;
 
+    @Column(name = "display_name", length = 64)
+    private String displayName;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     @Builder.Default
