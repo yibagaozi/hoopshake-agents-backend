@@ -122,7 +122,7 @@ public class AuthServiceImpl implements AuthService {
                 account.getStaffNo(),
                 student == null ? null : student.getId(),
                 student == null ? null : student.getStudentNo(),
-                student == null ? null : student.getDisplayName());
+                account.getDisplayName());
     }
 
     @Override
@@ -211,7 +211,7 @@ public class AuthServiceImpl implements AuthService {
                 account.getStatus(),
                 studentId,
                 student == null ? null : student.getStudentNo(),
-                student == null ? null : student.getDisplayName());
+                account.getDisplayName());
 
         return new TokenResponse(
                 accessToken,

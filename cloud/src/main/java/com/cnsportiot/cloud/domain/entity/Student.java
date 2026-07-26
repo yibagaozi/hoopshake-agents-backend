@@ -22,9 +22,6 @@ public class Student extends AuditableEntity {
     @Column(name = "student_no", nullable = false, unique = true, length = 32)
     private String studentNo;   // 学号
 
-    @Column(name = "display_name", nullable = false, length = 64)
-    private String displayName;
-
     @Enumerated(EnumType.STRING)
     @Column(name = "dominant_hand", length = 8)
     private DominantHand dominantHand;   // 主看侧路由用
@@ -42,8 +39,8 @@ public class Student extends AuditableEntity {
     @Column(name = "active_gallery_id")
     private UUID activeGalleryId;
 
-    public static Student create(UUID accountId, String studentNo, String displayName) {
+    public static Student create(UUID accountId, String studentNo) {
         return Student.builder()
-            .accountId(accountId).studentNo(studentNo).displayName(displayName).build();
+            .accountId(accountId).studentNo(studentNo).build();
     }
 }

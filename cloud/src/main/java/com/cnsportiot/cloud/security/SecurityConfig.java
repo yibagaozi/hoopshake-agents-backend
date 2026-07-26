@@ -41,8 +41,9 @@ public class SecurityConfig {
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(
-                        "/api/auth/login",
-                        "/api/auth/refresh").permitAll()
+                    "/api/auth/login",
+                    "/api/auth/refresh",
+                    "/api/auth/register").permitAll()
                 .requestMatchers("/api/parent/**").permitAll()   // 由 Controller 统一返回 501
                 .requestMatchers("/actuator/health", "/error").permitAll()
                 .requestMatchers("/api/ingest/**").permitAll()   // 由 ServiceTokenFilter 校验
