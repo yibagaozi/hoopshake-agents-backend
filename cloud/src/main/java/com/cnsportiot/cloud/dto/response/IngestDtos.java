@@ -1,8 +1,8 @@
 package com.cnsportiot.cloud.dto.response;
 
-import com.cnsportiot.cloud.domain.enums.DominantHand;
-import com.cnsportiot.cloud.domain.enums.GalleryStatus;
-import com.cnsportiot.cloud.domain.enums.SessionStatus;
+import com.cnsportiot.contracts.enums.DominantHand;
+import com.cnsportiot.contracts.enums.GalleryStatus;
+import com.cnsportiot.contracts.enums.SessionStatus;
 
 import java.util.List;
 import java.util.UUID;

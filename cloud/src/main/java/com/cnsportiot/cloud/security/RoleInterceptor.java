@@ -2,8 +2,8 @@ package com.cnsportiot.cloud.security;
 
 import com.cnsportiot.cloud.annotation.RequireAuth;
 import com.cnsportiot.cloud.annotation.RequireRole;
-import com.cnsportiot.cloud.exception.BusinessException;
-import com.cnsportiot.cloud.exception.ErrorCode;
+import com.cnsportiot.contracts.error.BusinessException;
+import com.cnsportiot.contracts.error.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.Authentication;

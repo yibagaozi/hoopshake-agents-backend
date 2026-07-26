@@ -1,8 +1,8 @@
 package com.cnsportiot.cloud.dto.response;
 
-import com.cnsportiot.cloud.domain.enums.FeedbackSeverity;
+import com.cnsportiot.contracts.enums.FeedbackSeverity;
 import com.cnsportiot.cloud.domain.enums.LessonStatus;
-import com.cnsportiot.cloud.domain.enums.SessionStatus;
+import com.cnsportiot.contracts.enums.SessionStatus;
 
 import java.time.OffsetDateTime;
 import java.util.List;

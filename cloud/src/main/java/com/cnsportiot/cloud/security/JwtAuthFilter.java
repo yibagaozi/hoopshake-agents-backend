@@ -1,6 +1,6 @@
 package com.cnsportiot.cloud.security;
 
-import com.cnsportiot.cloud.exception.ErrorCode;
+import com.cnsportiot.contracts.error.ErrorCode;
 import io.jsonwebtoken.ExpiredJwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

@@ -1,6 +1,6 @@
 package com.cnsportiot.cloud.security;
 
-import com.cnsportiot.cloud.exception.ErrorCode;
+import com.cnsportiot.contracts.error.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.access.AccessDeniedException;

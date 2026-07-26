@@ -1,7 +1,7 @@
 package com.cnsportiot.cloud.dto.request;
 
-import com.cnsportiot.cloud.domain.enums.FeedbackSeverity;
-import com.cnsportiot.cloud.domain.enums.SessionStatus;
+import com.cnsportiot.contracts.enums.FeedbackSeverity;
+import com.cnsportiot.contracts.enums.SessionStatus;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;

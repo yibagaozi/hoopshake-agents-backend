@@ -1,7 +1,7 @@
 package com.cnsportiot.cloud.dto.response;
 
-import com.cnsportiot.cloud.domain.enums.GalleryStatus;
-import com.cnsportiot.cloud.domain.enums.DominantHand;
+import com.cnsportiot.contracts.enums.GalleryStatus;
+import com.cnsportiot.contracts.enums.DominantHand;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;

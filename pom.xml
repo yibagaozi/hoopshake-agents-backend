@@ -12,6 +12,7 @@
     <modules>
         <module>cloud</module>
         <module>edge</module>
+        <module>contracts</module>
     </modules>
 
     <properties>

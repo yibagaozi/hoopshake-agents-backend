@@ -1,4 +1,4 @@
-package com.cnsportiot.cloud.domain.enums;
+package com.cnsportiot.contracts.enums;
 
 public enum GalleryStatus {
     ACTIVE, SUPERSEDED, DELETED

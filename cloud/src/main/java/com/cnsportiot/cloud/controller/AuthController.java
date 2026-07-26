@@ -2,7 +2,7 @@ package com.cnsportiot.cloud.controller;
 
 
 import com.cnsportiot.cloud.service.AuthService;
-import com.cnsportiot.cloud.common.ApiResponse;
+import com.cnsportiot.contracts.common.ApiResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.TokenResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.UserProfileResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.RegisterResponse;

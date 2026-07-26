@@ -1,8 +1,8 @@
 package com.cnsportiot.cloud.security;
 
-import com.cnsportiot.cloud.common.ApiResponse;
-import com.cnsportiot.cloud.common.ErrorInfo;
-import com.cnsportiot.cloud.exception.ErrorCode;
+import com.cnsportiot.contracts.common.ApiResponse;
+import com.cnsportiot.contracts.common.ErrorInfo;
+import com.cnsportiot.contracts.error.ErrorCode;
 import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;

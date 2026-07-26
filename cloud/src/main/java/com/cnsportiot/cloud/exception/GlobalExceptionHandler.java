@@ -1,8 +1,11 @@
 package com.cnsportiot.cloud.exception;
 
-import com.cnsportiot.cloud.common.ApiResponse;
-import com.cnsportiot.cloud.common.ErrorInfo;
-import com.cnsportiot.cloud.common.FieldError;
+import com.cnsportiot.contracts.error.BusinessException;
+import com.cnsportiot.contracts.error.ErrorCode;
+import com.cnsportiot.contracts.common.ApiResponse;
+import com.cnsportiot.contracts.common.ErrorInfo;
+import com.cnsportiot.contracts.error.ErrorCodeSpec;
+import com.cnsportiot.contracts.error.FieldError;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Path;
 import org.slf4j.Logger;
@@ -34,11 +37,11 @@ public class GlobalExceptionHandler {
     /** 业务异常:按携带的 ErrorCode 输出 */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<ErrorInfo>> handleBusiness(BusinessException ex) {
-        ErrorCode ec = ex.errorCode();
+        ErrorCodeSpec ec = ex.errorCode();
         if (ec.httpStatus().is5xxServerError()) {
-            log.error("业务异常({}): {}", ec.name(), ex.getMessage(), ex);
+            log.error("业务异常({}): {}", ec.error(), ex.getMessage(), ex);
         } else {
-            log.debug("业务异常({}): {}", ec.name(), ex.getMessage());
+            log.debug("业务异常({}): {}", ec.error(), ex.getMessage());
         }
         return build(ec, ex.getMessage(), ex.fieldErrors());
     }
@@ -99,7 +102,7 @@ public class GlobalExceptionHandler {
 
     // helpers
 
-    private ResponseEntity<ApiResponse<ErrorInfo>> build(ErrorCode ec, String message, List<FieldError> fieldErrors) {
+    private ResponseEntity<ApiResponse<ErrorInfo>> build(ErrorCodeSpec ec, String message, List<FieldError> fieldErrors) {
         ErrorInfo info = ErrorInfo.of(ec.error(), fieldErrors);
         ApiResponse<ErrorInfo> body = ApiResponse.error(
                 ec.code(), message != null ? message : ec.defaultMessage(), info);

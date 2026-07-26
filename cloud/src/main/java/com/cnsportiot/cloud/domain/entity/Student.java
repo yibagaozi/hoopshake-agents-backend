@@ -1,7 +1,7 @@
 package com.cnsportiot.cloud.domain.entity;
 
 import com.cnsportiot.cloud.domain.common.AuditableEntity;
-import com.cnsportiot.cloud.domain.enums.DominantHand;
+import com.cnsportiot.contracts.enums.DominantHand;
 import jakarta.persistence.*;
 import lombok.*;
 

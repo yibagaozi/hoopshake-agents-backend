@@ -1,4 +1,4 @@
-package com.cnsportiot.cloud.common;
+package com.cnsportiot.contracts.common;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import org.slf4j.MDC;

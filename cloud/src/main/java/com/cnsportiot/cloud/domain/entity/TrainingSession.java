@@ -1,7 +1,7 @@
 package com.cnsportiot.cloud.domain.entity;
 
 import com.cnsportiot.cloud.domain.common.AuditableEntity;
-import com.cnsportiot.cloud.domain.enums.SessionStatus;
+import com.cnsportiot.contracts.enums.SessionStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.JdbcTypeCode;

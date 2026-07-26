@@ -1,33 +1,31 @@
-package com.cnsportiot.cloud.exception;
-
-import com.cnsportiot.cloud.common.FieldError;
+package com.cnsportiot.contracts.error;
 
 import java.util.List;
 
 /**
  * 业务异常:承载 {@link ErrorCode} 与可选的自定义提示 / 字段错误
- * application / web 层抛出,由 {@link GlobalExceptionHandler} 统一转成失败信封
+ * application / web 层抛出,由 GlobalExceptionHandler 统一转成失败信封
  */
 public class BusinessException extends RuntimeException {
 
-    private final ErrorCode errorCode;
+    private final ErrorCodeSpec errorCode;
     private final transient List<FieldError> fieldErrors;
 
-    public BusinessException(ErrorCode errorCode) {
+    public BusinessException(ErrorCodeSpec errorCode) {
         this(errorCode, errorCode.defaultMessage(), null);
     }
 
-    public BusinessException(ErrorCode errorCode, String message) {
+    public BusinessException(ErrorCodeSpec errorCode, String message) {
         this(errorCode, message, null);
     }
 
-    public BusinessException(ErrorCode errorCode, String message, List<FieldError> fieldErrors) {
+    public BusinessException(ErrorCodeSpec errorCode, String message, List<FieldError> fieldErrors) {
         super(message != null ? message : errorCode.defaultMessage());
         this.errorCode = errorCode;
         this.fieldErrors = fieldErrors;
     }
 
-    public ErrorCode errorCode() {
+    public ErrorCodeSpec errorCode() {
         return errorCode;
     }
 
@@ -37,11 +35,11 @@ public class BusinessException extends RuntimeException {
 
     // 便捷工厂
 
-    public static BusinessException of(ErrorCode ec) {
+    public static BusinessException of(ErrorCodeSpec ec) {
         return new BusinessException(ec);
     }
 
-    public static BusinessException of(ErrorCode ec, String message) {
+    public static BusinessException of(ErrorCodeSpec ec, String message) {
         return new BusinessException(ec, message);
     }
 

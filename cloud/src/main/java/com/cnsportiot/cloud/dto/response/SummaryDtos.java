@@ -1,6 +1,6 @@
 package com.cnsportiot.cloud.dto.response;
 
-import com.cnsportiot.cloud.domain.enums.SessionStatus;
+import com.cnsportiot.contracts.enums.SessionStatus;
 import com.cnsportiot.cloud.dto.response.LessonDtos.SafetyAlertResponse;
 import com.cnsportiot.cloud.dto.response.StudentDataDtos.TrendPoint;
 

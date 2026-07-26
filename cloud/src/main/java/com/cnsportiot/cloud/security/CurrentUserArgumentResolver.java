@@ -1,8 +1,8 @@
 package com.cnsportiot.cloud.security;
 
 import com.cnsportiot.cloud.annotation.CurrentUser;
-import com.cnsportiot.cloud.exception.BusinessException;
-import com.cnsportiot.cloud.exception.ErrorCode;
+import com.cnsportiot.contracts.error.BusinessException;
+import com.cnsportiot.contracts.error.ErrorCode;
 import org.springframework.core.MethodParameter;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;

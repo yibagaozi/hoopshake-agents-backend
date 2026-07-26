@@ -1,7 +1,7 @@
 package com.cnsportiot.cloud.domain.entity;
 
 import com.cnsportiot.cloud.domain.common.BaseEntity;
-import com.cnsportiot.cloud.domain.enums.GalleryStatus;
+import com.cnsportiot.contracts.enums.GalleryStatus;
 import jakarta.persistence.*;
 import lombok.*;
 

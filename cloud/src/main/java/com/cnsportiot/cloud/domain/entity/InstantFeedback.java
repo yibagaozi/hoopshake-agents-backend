@@ -1,7 +1,7 @@
 package com.cnsportiot.cloud.domain.entity;
 
 import com.cnsportiot.cloud.domain.common.BaseEntity;
-import com.cnsportiot.cloud.domain.enums.FeedbackSeverity;
+import com.cnsportiot.contracts.enums.FeedbackSeverity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.JdbcTypeCode;

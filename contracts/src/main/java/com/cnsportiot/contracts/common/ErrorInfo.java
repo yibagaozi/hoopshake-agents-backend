@@ -1,6 +1,7 @@
-package com.cnsportiot.cloud.common;
+package com.cnsportiot.contracts.common;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.cnsportiot.contracts.error.FieldError;
 
 import java.util.List;
 

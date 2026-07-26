@@ -1,9 +1,9 @@
-package com.cnsportiot.cloud.exception;
+package com.cnsportiot.contracts.error;
 
 import org.springframework.http.HttpStatus;
 
 /** 业务错误码 */
-public enum ErrorCode {
+public enum ErrorCode implements ErrorCodeSpec{
 
     OK(0, HttpStatus.OK, "ok"),
 
@@ -44,20 +44,18 @@ public enum ErrorCode {
         this.defaultMessage = defaultMessage;
     }
 
-    public int code() {
+    @Override public int code() {
         return code;
     }
 
-    public HttpStatus httpStatus() {
+    @Override public HttpStatus httpStatus() {
         return httpStatus;
     }
 
-    public String defaultMessage() {
+    @Override public String defaultMessage() {
         return defaultMessage;
     }
 
     /** 响应 error 字段即枚举名 */
-    public String error() {
-        return name();
-    }
+    @Override public String error() { return name(); }
 }

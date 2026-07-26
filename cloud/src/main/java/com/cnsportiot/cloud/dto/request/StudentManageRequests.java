@@ -1,6 +1,6 @@
 package com.cnsportiot.cloud.dto.request;
 
-import com.cnsportiot.cloud.domain.enums.DominantHand;
+import com.cnsportiot.contracts.enums.DominantHand;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Email;
