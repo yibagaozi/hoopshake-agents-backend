@@ -17,8 +17,6 @@ import java.util.UUID;
 /** 课程仓储 */
 public interface LessonRepository extends JpaRepository<Lesson, UUID> {
 
-    Optional<Lesson> findById(UUID lessonId);
-
     /**
      * §5.2 查询教师所属课程分页列表
      */
