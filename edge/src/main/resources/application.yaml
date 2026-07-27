@@ -14,7 +14,7 @@ hoopshake:
 
     data-root: C:/hoopshake/data
 
-    ffmpeg-path: C:/hoopshake/ffmpeg/bin/ffmpeg.exe
+    ffmpeg-path: C:/Program Files/ffmpeg-7.1.1/bin/ffmpeg.exe
 
     stale-frame-millis: 3000
 
@@ -37,8 +37,8 @@ hoopshake:
         anchor: false
 
     mediamtx:
-      executable: C:/hoopshake/mediamtx/mediamtx.exe
-      config: C:/hoopshake/mediamtx/mediamtx.yml
+      executable: C:/Program Files/mediamtx/mediamtx.exe
+      config: C:/Program Files/mediamtx/mediamtx.yml
       rtsp-base: rtsp://127.0.0.1:8554
       api-base: http://127.0.0.1:9997
       ready-timeout-millis: 10000
