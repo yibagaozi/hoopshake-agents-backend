@@ -49,7 +49,7 @@ public class GlobalExceptionHandler {
         return paramInvalid(ex.getBindingResult());
     }
 
-    /** 处理方法参数级校验失败(Spring 6.1+ 取代 ConstraintViolationException) */
+    /** 处理方法参数级校验失败 */
     @ExceptionHandler(HandlerMethodValidationException.class)
     public ResponseEntity<ApiResponse<ErrorInfo>> handleMethodValidation(HandlerMethodValidationException ex) {
         List<FieldError> fieldErrors = ex.getParameterValidationResults().stream()
