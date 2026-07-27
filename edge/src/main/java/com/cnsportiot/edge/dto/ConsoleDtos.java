@@ -3,6 +3,7 @@ package com.cnsportiot.edge.dto;
 import com.cnsportiot.edge.domain.enums.ProcessState;
 
 import java.util.Map;
+import java.util.List;
 
 /** 操作台状态面板 DTO */
 public final class ConsoleDtos {
