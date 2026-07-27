@@ -4,17 +4,22 @@ import com.cnsportiot.edge.config.EdgeProperties;
 import com.cnsportiot.edge.domain.enums.ProcessState;
 import com.cnsportiot.edge.process.ManagedProcess;
 import com.cnsportiot.edge.process.ProcessSpec;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Component;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /** 本地 mediamtx 进程托管 */
@@ -26,8 +31,10 @@ public class MediaMtxManager {
     private final EdgeProperties props;
     private final TaskExecutor supervisorExecutor;
     private ManagedProcess process;
+    private volatile boolean externalInstance;
 
-    public MediaMtxManager(EdgeProperties props, TaskExecutor captureIoExecutor) {
+    public MediaMtxManager(EdgeProperties props,
+                           @Qualifier("captureIoExecutor") TaskExecutor captureIoExecutor) {
         this.props = props;
         this.supervisorExecutor = captureIoExecutor;
     }
@@ -37,7 +44,16 @@ public class MediaMtxManager {
             return;
         }
         EdgeProperties.MediaMtx cfg = props.getMediamtx();
-        List<String> cmd = cfg.getConfig() == null
+
+        if (portOpen(rtspPort(cfg))) {
+            externalInstance = true;
+            log.warn("RTSP 端口已被占用,复用已有 mediamtx 实例,跳过启动。"
+                    + "若非预期,请清理残留进程(taskkill /F /IM mediamtx.exe)后重启");
+            return;
+        }
+        externalInstance = false;
+
+        List<String> cmd = (cfg.getConfig() == null || cfg.getConfig().isBlank())
                 ? List.of(cfg.getExecutable())
                 : List.of(cfg.getExecutable(), cfg.getConfig());
 
@@ -46,21 +62,28 @@ public class MediaMtxManager {
                 this::drainToLog, this::drainToLog,
                 true, 5));
         supervisorExecutor.execute(process);
+        log.info("mediamtx 启动中: {}", String.join(" ", cmd));
     }
 
+    /** 应用关闭时停掉自己拉起的实例;复用的外部实例不动 */
+    @PreDestroy
     public synchronized void stop() {
+        if (externalInstance) {
+            log.info("mediamtx 为复用的外部实例,不做停止");
+            return;
+        }
         if (process != null) {
             process.stop();
+            log.info("mediamtx 已停止");
         }
     }
 
     /** 阻塞等待 RTSP 端口可连接;ffmpeg 起太早会连不上直接退出 */
     public boolean awaitReady() {
         EdgeProperties.MediaMtx cfg = props.getMediamtx();
-        URI uri = URI.create(cfg.getRtspBase());
         long deadline = System.currentTimeMillis() + cfg.getReadyTimeoutMillis();
         while (System.currentTimeMillis() < deadline) {
-            if (portOpen(uri.getHost(), uri.getPort() > 0 ? uri.getPort() : 8554)) {
+            if (portOpen(rtspPort(cfg))) {
                 log.info("mediamtx 已就绪: {}", cfg.getRtspBase());
                 return true;
             }
@@ -71,17 +94,25 @@ public class MediaMtxManager {
                 return false;
             }
         }
-        log.error("mediamtx 未在 {}ms 内就绪", cfg.getReadyTimeoutMillis());
+        log.error("mediamtx 未在 {}ms 内就绪,检查上方 [mediamtx] 日志", cfg.getReadyTimeoutMillis());
         return false;
     }
 
     public ProcessState state() {
+        if (externalInstance) {
+            return ProcessState.RUNNING;
+        }
         return process == null ? ProcessState.STOPPED : process.state();
     }
 
-    private static boolean portOpen(String host, int port) {
+    private InetSocketAddress rtspPort(EdgeProperties.MediaMtx cfg) {
+        URI uri = URI.create(cfg.getRtspBase());
+        return new InetSocketAddress(uri.getHost(), uri.getPort() > 0 ? uri.getPort() : 8554);
+    }
+
+    private static boolean portOpen(InetSocketAddress addr) {
         try (Socket s = new Socket()) {
-            s.connect(new InetSocketAddress(host, port), 500);
+            s.connect(addr, 500);
             return true;
         } catch (IOException e) {
             return false;
@@ -89,17 +120,20 @@ public class MediaMtxManager {
     }
 
     private File workDir(EdgeProperties.MediaMtx cfg) {
-        File exe = new File(cfg.getExecutable());
-        return exe.getParentFile();
+        return new File(cfg.getExecutable()).getParentFile();
     }
 
+    /**
+     * mediamtx 的输出转到 INFO —— 原来打在 DEBUG,
+     * 默认日志档下「address already in use」这类退出原因完全看不到
+     */
     private void drainToLog(InputStream in) {
         supervisorExecutor.execute(() -> {
-            try (var reader = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8))) {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(in, StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    log.debug("[mediamtx] {}", line);
+                    log.info("[mediamtx] {}", line);
                 }
             } catch (Exception ignored) {
                 // 流关闭即进程退出,由 ManagedProcess 处理
@@ -107,4 +141,3 @@ public class MediaMtxManager {
         });
     }
 }
-
