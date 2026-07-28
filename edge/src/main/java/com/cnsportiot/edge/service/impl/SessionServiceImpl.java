@@ -3,7 +3,7 @@ package com.cnsportiot.edge.service.impl;
 import com.cnsportiot.contracts.error.BusinessException;
 import com.cnsportiot.contracts.error.ErrorCode;
 import com.cnsportiot.edge.service.LessonContextService;
-import com.cnsportiot.edge.config.CameraRegistry;
+import com.cnsportiot.edge.camera.CameraRegistry;
 import com.cnsportiot.edge.capture.CaptureManager;
 import com.cnsportiot.edge.capture.RecordingManager;
 import com.cnsportiot.edge.config.EdgeProperties;

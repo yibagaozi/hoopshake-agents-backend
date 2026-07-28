@@ -1,10 +1,10 @@
-package com.cnsportiot.edge.config;
+package com.cnsportiot.edge.camera;
 
 import com.cnsportiot.contracts.error.BusinessException;
 import com.cnsportiot.contracts.error.ErrorCode;
+import com.cnsportiot.edge.config.EdgeProperties;
 import com.cnsportiot.edge.domain.CameraDescriptor;
 import com.cnsportiot.edge.domain.CameraStatus;
-import com.cnsportiot.edge.exception.EdgeErrorCode;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 

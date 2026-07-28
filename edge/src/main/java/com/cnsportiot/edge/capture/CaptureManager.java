@@ -1,7 +1,7 @@
 package com.cnsportiot.edge.capture;
 
 import com.cnsportiot.contracts.error.BusinessException;
-import com.cnsportiot.edge.config.CameraRegistry;
+import com.cnsportiot.edge.camera.CameraRegistry;
 import com.cnsportiot.edge.domain.CameraDescriptor;
 import com.cnsportiot.edge.domain.CameraStatus;
 import com.cnsportiot.edge.domain.enums.ProcessState;

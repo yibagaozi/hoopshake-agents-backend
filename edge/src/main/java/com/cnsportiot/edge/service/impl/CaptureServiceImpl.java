@@ -5,7 +5,7 @@ import com.cnsportiot.edge.capture.CaptureManager;
 import com.cnsportiot.edge.capture.FfmpegCommandBuilder;
 import com.cnsportiot.edge.capture.MediaMtxManager;
 import com.cnsportiot.edge.capture.RecordingManager;
-import com.cnsportiot.edge.config.CameraRegistry;
+import com.cnsportiot.edge.camera.CameraRegistry;
 import com.cnsportiot.edge.config.EdgeProperties;
 import com.cnsportiot.edge.domain.CameraDescriptor;
 import com.cnsportiot.edge.domain.CameraStatus;

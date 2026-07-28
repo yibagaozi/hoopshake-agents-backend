@@ -2,9 +2,8 @@ package com.cnsportiot.edge.capture;
 
 import com.cnsportiot.contracts.error.BusinessException;
 import com.cnsportiot.contracts.error.ErrorCode;
-import com.cnsportiot.edge.config.CameraRegistry;
+import com.cnsportiot.edge.camera.CameraRegistry;
 import com.cnsportiot.edge.domain.RecordingSegment;
-import com.cnsportiot.edge.exception.EdgeErrorCode;
 import com.cnsportiot.edge.process.ManagedProcess;
 import com.cnsportiot.edge.process.ProcessSpec;
 import org.slf4j.Logger;

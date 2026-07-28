@@ -4,7 +4,7 @@ import com.cnsportiot.contracts.error.ErrorCode;
 import com.cnsportiot.contracts.error.BusinessException;
 import com.cnsportiot.edge.service.RecordService;
 import com.cnsportiot.edge.service.SessionService;
-import com.cnsportiot.edge.config.CameraRegistry;
+import com.cnsportiot.edge.camera.CameraRegistry;
 import com.cnsportiot.edge.capture.RecordingManager;
 import com.cnsportiot.edge.config.EdgeProperties;
 import com.cnsportiot.edge.domain.CameraDescriptor;
