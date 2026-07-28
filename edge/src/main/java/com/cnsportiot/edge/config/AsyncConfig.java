@@ -6,6 +6,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
+import java.util.concurrent.ThreadPoolExecutor;
+
 /** 线程池规划 */
 @Configuration
 public class AsyncConfig {
@@ -33,6 +35,19 @@ public class AsyncConfig {
         executor.setMaxPoolSize(4);
         executor.setQueueCapacity(64);
         executor.setThreadNamePrefix("cloud-io-");
+        executor.initialize();
+        return executor;
+    }
+
+    /** WS 扇出 */
+    @Bean
+    public TaskExecutor wsBroadcastExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(256);
+        executor.setThreadNamePrefix("ws-broadcast-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardOldestPolicy());
         executor.initialize();
         return executor;
     }
