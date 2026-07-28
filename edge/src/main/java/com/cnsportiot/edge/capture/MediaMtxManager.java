@@ -58,7 +58,7 @@ public class MediaMtxManager {
                 : List.of(cfg.getExecutable(), cfg.getConfig());
 
         process = new ManagedProcess(new ProcessSpec(
-                "mediamtx", cmd, workDir(cfg),
+                "mediamtx", cmd, workDir(cfg), cfg.getEnv(),
                 this::drainToLog, this::drainToLog,
                 true, 5));
         supervisorExecutor.execute(process);

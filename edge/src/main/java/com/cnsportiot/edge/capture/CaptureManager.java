@@ -59,7 +59,7 @@ public class CaptureManager {
             ManagedProcess p = new ManagedProcess(new ProcessSpec(
                     "capture-" + id,
                     commandBuilder.capture(cam),
-                    null,
+                    null, null,
                     stdout -> captureIoExecutor.execute(new FfmpegProgressReader(stdout, status)),
                     stderr -> captureIoExecutor.execute(new BlackdetectReader(stderr, status)),
                     true, 5));

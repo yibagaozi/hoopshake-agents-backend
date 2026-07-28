@@ -63,6 +63,7 @@ public class RecordingManager {
                     commandBuilder.record(camId, file.toString()),
                     null,
                     null,
+                    null,
                     stderr -> captureIoExecutor.execute(() -> drain(camId, stderr)),
                     // 中途崩溃若自动重启会覆盖同名文件,故不自动重启,
                     // 由 /local/session/health 暴露给操作台人工处理

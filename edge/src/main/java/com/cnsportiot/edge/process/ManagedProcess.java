@@ -68,6 +68,7 @@ public class ManagedProcess implements Runnable {
         if (spec.workDir() != null) {
             pb.directory(spec.workDir());
         }
+        pb.environment().putAll(spec.env());
         Process p = pb.start();
         if (spec.stdoutConsumer() != null) {
             spec.stdoutConsumer().accept(p.getInputStream());
