@@ -64,6 +64,20 @@ hoopshake:
     mock:
       cv-enabled: false
 
+    cv:
+      enabled: true
+      auto-start: true
+      command:
+        - python
+        - C:/hoopshake/tools/mock_cv.py
+        - --pose-hz
+        - "10"
+        - --persons
+        - "3"
+      work-dir: C:/hoopshake/tools
+      env:
+        PYTHONUNBUFFERED: "1"
+
 logging:
   level:
     com.cnsportiot.edge: INFO
