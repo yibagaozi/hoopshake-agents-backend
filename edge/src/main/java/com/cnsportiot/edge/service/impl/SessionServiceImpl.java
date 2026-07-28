@@ -1,6 +1,7 @@
 package com.cnsportiot.edge.service.impl;
 
 import com.cnsportiot.contracts.error.BusinessException;
+import com.cnsportiot.contracts.error.ErrorCode;
 import com.cnsportiot.edge.service.LessonContextService;
 import com.cnsportiot.edge.config.CameraRegistry;
 import com.cnsportiot.edge.capture.CaptureManager;
@@ -69,10 +70,10 @@ public class SessionServiceImpl implements SessionService {
         RecordingSession existing = current.get();
         if (existing != null
                 && (existing.state() == SessionState.RECORDING || existing.state() == SessionState.PAUSED)) {
-            throw new BusinessException(EdgeErrorCode.SESSION_ALREADY_RUNNING);
+            throw new BusinessException(ErrorCode.STATE_CONFLICT);
         }
         if (!captureManager.anyRunning()) {
-            throw new BusinessException(EdgeErrorCode.CAPTURE_NOT_RUNNING, "采集未启动,无法录制");
+            throw new BusinessException(EdgeErrorCode.FFMPEG_UNAVAILABLE, "采集未启动,无法录制");
         }
 
         // 优先取请求参数,其次取已选课程;都没有则为开发阶段的纯录制
@@ -89,7 +90,7 @@ public class SessionServiceImpl implements SessionService {
             Files.createDirectories(dataDir);
         } catch (IOException e) {
             log.error("创建数据目录失败: {}", dataDir, e);
-            throw new BusinessException(EdgeErrorCode.DATA_DIR_UNWRITABLE, dataDir.toString());
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, dataDir.toString());
         }
 
         RecordingSession session = new RecordingSession(
@@ -102,7 +103,7 @@ public class SessionServiceImpl implements SessionService {
         } catch (RuntimeException e) {
             log.error("录制启动失败,回滚会话 {}", sessionId, e);
             recordingManager.stopSegment();
-            throw new BusinessException(EdgeErrorCode.RECORDING_START_FAILED, e.getMessage());
+            throw new BusinessException(EdgeErrorCode.FFMPEG_UNAVAILABLE, e.getMessage());
         }
         session.addSegments(segments);
         current.set(session);
@@ -128,7 +129,7 @@ public class SessionServiceImpl implements SessionService {
     public synchronized SessionResponse resume() {
         RecordingSession session = requireState(SessionState.PAUSED);
         if (!captureManager.anyRunning()) {
-            throw new BusinessException(EdgeErrorCode.CAPTURE_NOT_RUNNING, "采集未启动,无法继续录制");
+            throw new BusinessException(EdgeErrorCode.FFMPEG_UNAVAILABLE, "采集未启动,无法继续录制");
         }
         // 新时间戳 → 新一段文件,ffmpeg 无法真正挂起,继续即重新起进程。
         // 期间可能有机位掉线,按当前在线集合重新起,不因少一路而拒绝继续上课
@@ -145,7 +146,7 @@ public class SessionServiceImpl implements SessionService {
         RecordingSession session = current.get();
         if (session == null
                 || (session.state() != SessionState.RECORDING && session.state() != SessionState.PAUSED)) {
-            throw new BusinessException(EdgeErrorCode.SESSION_NOT_RUNNING);
+            throw new BusinessException(ErrorCode.STATE_CONFLICT);
         }
 
         recordingManager.stopSegment();
@@ -198,7 +199,7 @@ public class SessionServiceImpl implements SessionService {
     private RecordingSession requireState(SessionState expected) {
         RecordingSession session = current.get();
         if (session == null || session.state() != expected) {
-            throw new BusinessException(EdgeErrorCode.SESSION_STATE_INVALID,
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
                     "当前状态 " + (session == null ? SessionState.IDLE : session.state())
                             + ",该操作要求 " + expected);
         }

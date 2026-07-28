@@ -1,6 +1,7 @@
 package com.cnsportiot.edge.capture;
 
 import com.cnsportiot.contracts.error.BusinessException;
+import com.cnsportiot.contracts.error.ErrorCode;
 import com.cnsportiot.edge.config.CameraRegistry;
 import com.cnsportiot.edge.domain.RecordingSegment;
 import com.cnsportiot.edge.exception.EdgeErrorCode;
@@ -45,7 +46,7 @@ public class RecordingManager {
     /** 启动指定机位的录制,产出一段(每路一个文件) */
     public synchronized List<RecordingSegment> startSegment(Path dataDir, List<String> camIds) {
         if (recording()) {
-            throw new BusinessException(EdgeErrorCode.SESSION_ALREADY_RUNNING, "录制进程未清空");
+            throw new BusinessException(ErrorCode.STATE_CONFLICT, "录制进程未清空");
         }
         processes.clear();
 

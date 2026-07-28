@@ -1,6 +1,7 @@
 package com.cnsportiot.edge.config;
 
 import com.cnsportiot.contracts.error.BusinessException;
+import com.cnsportiot.contracts.error.ErrorCode;
 import com.cnsportiot.edge.domain.CameraDescriptor;
 import com.cnsportiot.edge.domain.CameraStatus;
 import com.cnsportiot.edge.exception.EdgeErrorCode;
@@ -40,7 +41,7 @@ public class CameraRegistry {
     public CameraDescriptor descriptor(String camId) {
         CameraDescriptor d = descriptors.get(camId);
         if (d == null) {
-            throw new BusinessException(EdgeErrorCode.CAMERA_NOT_FOUND, "机位不存在: " + camId);
+            throw new BusinessException(ErrorCode.NOT_FOUND, "机位不存在: " + camId);
         }
         return d;
     }
@@ -48,7 +49,7 @@ public class CameraRegistry {
     public CameraStatus status(String camId) {
         CameraStatus s = statuses.get(camId);
         if (s == null) {
-            throw new BusinessException(EdgeErrorCode.CAMERA_NOT_FOUND, "机位不存在: " + camId);
+            throw new BusinessException(ErrorCode.NOT_FOUND, "机位不存在: " + camId);
         }
         return s;
     }
