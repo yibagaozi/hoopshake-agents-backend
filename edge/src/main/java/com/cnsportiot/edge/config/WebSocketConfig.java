@@ -34,14 +34,5 @@ public class WebSocketConfig implements WebSocketConfigurer {
                 .setAllowedOriginPatterns("*");
     }
 
-    /** 骨架帧体积不小,放宽单帧上限与缓冲 */
-    @Bean
-    public ServletServerContainerFactoryBean createWebSocketContainer() {
-        ServletServerContainerFactoryBean container = new ServletServerContainerFactoryBean();
-        container.setMaxTextMessageBufferSize(256 * 1024);
-        container.setMaxBinaryMessageBufferSize(256 * 1024);
-        container.setMaxSessionIdleTimeout(0L);   // 长连接不因空闲断开,靠心跳与 TCP 保活
-        return container;
-    }
 }
 

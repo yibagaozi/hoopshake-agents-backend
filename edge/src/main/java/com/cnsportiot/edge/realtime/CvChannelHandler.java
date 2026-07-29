@@ -45,8 +45,11 @@ public class CvChannelHandler extends TextWebSocketHandler {
         this.publisher = publisher;
     }
 
+    private static final int CV_TEXT_LIMIT = 256 * 1024;
+
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
+        session.setTextMessageSizeLimit(CV_TEXT_LIMIT);
         lastSeq.set(-1);
         gapCount.set(0);
         receivedCount.set(0);
