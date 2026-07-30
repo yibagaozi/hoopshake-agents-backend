@@ -5,6 +5,7 @@ import com.cnsportiot.cloud.domain.enums.LessonStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -14,7 +15,7 @@ import java.util.List;
 import java.util.UUID;
 
 /** 课程仓储 */
-public interface LessonRepository extends JpaRepository<Lesson, UUID> {
+public interface LessonRepository extends JpaRepository<Lesson, UUID>, JpaSpecificationExecutor<Lesson> {
 
     /**
      * §5.2 查询教师所属课程分页列表
@@ -29,6 +30,7 @@ public interface LessonRepository extends JpaRepository<Lesson, UUID> {
             )
             ORDER BY l.scheduledAt DESC, l.createdAt DESC
             """)
+    @Deprecated
     Page<Lesson> findTeacherLessonPage(
             @Param("teacherId") UUID teacherId,
             @Param("statusList") List<LessonStatus> statusList,

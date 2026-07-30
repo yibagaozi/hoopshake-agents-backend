@@ -9,10 +9,13 @@ import com.cnsportiot.cloud.repository.LessonRepository;
 import com.cnsportiot.cloud.service.LessonService;
 import com.cnsportiot.contracts.error.BusinessException;
 import com.cnsportiot.contracts.error.ErrorCode;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -66,27 +69,41 @@ public class LessonServiceImpl implements LessonService {
                                                               OffsetDateTime toTime,
                                                               int page,
                                                               int size) {
-        Pageable pageable = PageRequest.of(page, size);
-      
-        Page<Lesson> lessonPage = lessonRepository.findTeacherLessonPage(loginTeacherId, statusList, fromTime, toTime, pageable);
+        Specification<Lesson> spec = (root, query, cb) -> {
+            List<Predicate> ps = new ArrayList<>();
+            ps.add(cb.equal(root.get("teacherId"), loginTeacherId));
+            if (statusList != null && !statusList.isEmpty()) {
+                ps.add(root.get("status").in(statusList));
+            }
+            if (fromTime != null) {
+                ps.add(cb.greaterThanOrEqualTo(root.get("scheduledAt"), fromTime));
+            }
+            if (toTime != null) {
+                ps.add(cb.lessThanOrEqualTo(root.get("scheduledAt"), toTime));
+            }
+            return cb.and(ps.toArray(Predicate[]::new));
+        };
 
+        // 排序从 @Query 移到 Pageable。scheduledAt 可空,nullsLast 免得未排期的课占据首页
+        Pageable pageable = PageRequest.of(page, size, Sort.by(
+            Sort.Order.desc("scheduledAt").nullsLast(),
+            Sort.Order.desc("createdAt")));
+
+        Page<Lesson> lessonPage = lessonRepository.findAll(spec, pageable);
         List<UUID> lessonIdList = lessonPage.getContent().stream()
-                .map(Lesson::getId)
-                .collect(Collectors.toList());
+            .map(Lesson::getId)
+            .toList();
+
         Map<UUID, Integer> enrollCountMap = new HashMap<>();
         if (!lessonIdList.isEmpty()) {
-            List<Object[]> countRows = lessonEnrollmentRepository.countGroupByLessonId(lessonIdList);
-            for (Object[] row : countRows) {
-                UUID lid = (UUID) row[0];
-                Long cnt = (Long) row[1];
-                enrollCountMap.put(lid, cnt.intValue());
+            for (Object[] row : lessonEnrollmentRepository.countGroupByLessonId(lessonIdList)) {
+                enrollCountMap.put((UUID) row[0], ((Long) row[1]).intValue());
             }
         }
 
-        return lessonPage.map(item -> {
-            int count = enrollCountMap.getOrDefault(item.getId(), 0);
-            return convertToDto(item, count);
-        });
+        return lessonPage.map(item ->
+                convertToDto(item, enrollCountMap.getOrDefault(item.getId(), 0)));
+
     }
 
     /** §5.3 课程详情 */
