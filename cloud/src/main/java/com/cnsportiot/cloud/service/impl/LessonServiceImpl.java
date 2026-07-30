@@ -68,7 +68,7 @@ public class LessonServiceImpl implements LessonService {
                                                               int size) {
         Pageable pageable = PageRequest.of(page, size);
       
-        Page<Lesson> lessonPage = lessonRepository.findTeacherLessonsPage(loginTeacherId, statusList, fromTime, toTime, pageable);
+        Page<Lesson> lessonPage = lessonRepository.findTeacherLessonPage(loginTeacherId, statusList, fromTime, toTime, pageable);
 
         List<UUID> lessonIdList = lessonPage.getContent().stream()
                 .map(Lesson::getId)
