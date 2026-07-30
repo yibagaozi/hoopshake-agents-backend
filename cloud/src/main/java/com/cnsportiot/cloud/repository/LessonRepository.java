@@ -1,0 +1,49 @@
+package com.cnsportiot.cloud.repository;
+
+import com.cnsportiot.cloud.domain.entity.Lesson;
+import com.cnsportiot.cloud.domain.enums.LessonStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.UUID;
+
+/** 课程仓储 */
+public interface LessonRepository extends JpaRepository<Lesson, UUID> {
+
+    /**
+     * §5.2 查询教师所属课程分页列表
+     */
+    @Query("""
+            SELECT l FROM Lesson l
+            WHERE l.teacherId = :teacherId
+            AND (:statusList IS NULL OR l.status IN :statusList)
+            AND (
+                (:fromTime IS NULL AND :toTime IS NULL)
+                OR l.scheduledAt BETWEEN :fromTime AND :toTime
+            )
+            ORDER BY l.scheduledAt DESC, l.createdAt DESC
+            """)
+    Page<Lesson> findTeacherLessonPage(
+            @Param("teacherId") UUID teacherId,
+            @Param("statusList") List<LessonStatus> statusList,
+            @Param("fromTime") OffsetDateTime fromTime,
+            @Param("toTime") OffsetDateTime toTime,
+            Pageable pageable
+    );
+
+    /**
+     * §5.5 更新课程状态
+     */
+    @Modifying
+    @Query("UPDATE Lesson l SET l.status = :targetStatus, l.updatedAt = CURRENT_TIMESTAMP WHERE l.id = :lessonId")
+    int updateLessonStatus(
+            @Param("lessonId") UUID lessonId,
+            @Param("targetStatus") LessonStatus targetStatus
+    );
+}
