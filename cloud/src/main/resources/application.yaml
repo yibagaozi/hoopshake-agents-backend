@@ -2,7 +2,7 @@ spring:
   application:
     name: cloud
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:5432/${DB_NAME}
+    url: jdbc:postgresql://${DB_HOST:101.43.233.17}:5432/${DB_NAME}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
@@ -15,3 +15,12 @@ hoopshake:
   register:
     enabled: true
     invite-code: ${REGISTER_INVITE_CODE:hoopshake-invite}
+  cloud:
+    cors:
+      allowed-origins:
+        - http://localhost:5173
+        - http://127.0.0.1:5173
+      path-patterns:
+        - /api/**
+      allow-credentials: true
+      max-age-seconds: 3600
