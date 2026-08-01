@@ -9,9 +9,9 @@ spring:
 
 hoopshake:
   jwt:
-    secret: ${JWT_SECRET}
+    secret: ${JWT_SECRET:hoopshake-basketball-coach-agent-system-for-beijing-university-of-posts-and-telecommunications}
   ingest:
-    service-token: ${INGEST_SERVICE_TOKEN}
+    service-token: ${INGEST_SERVICE_TOKEN:hoopshake-local-ingest-token}
   register:
     enabled: true
     invite-code: ${REGISTER_INVITE_CODE:hoopshake-invite}
@@ -25,4 +25,4 @@ hoopshake:
       allow-credentials: true
       max-age-seconds: 3600
   student:
-    initial-password:
+    initial-password: No newline at end of file
