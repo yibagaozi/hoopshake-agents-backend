@@ -67,7 +67,12 @@ public class RecordingManager {
                     stderr -> captureIoExecutor.execute(() -> drain(camId, stderr)),
                     // 中途崩溃若自动重启会覆盖同名文件,故不自动重启,
                     // 由 /local/session/health 暴露给操作台人工处理
-                    false, 1));
+                    false, 1,
+                    // **停止时先给 ffmpeg 一个 q**,让它自己写完 Matroska 的 Cues 与时长。
+                    // 少了这个参数,Windows 上 destroy() 就是强杀(见 ManagedProcess.stop),
+                    // 录出来的文件播放器里没有时长、拖不动进度条 —— 画面其实一帧不少,
+                    // 缺的只是文件末尾那段索引
+                    "q"));
             captureIoExecutor.execute(p);
 
             processes.put(camId, p);
@@ -77,7 +82,13 @@ public class RecordingManager {
         return segments;
     }
 
-    /** 停止全部录制。ManagedProcess 走 SIGTERM 宽限,ffmpeg 得以写完文件索引 */
+    /**
+     * 停止全部录制
+     *
+     * <p>逐个 stop 是**串行**的:每路最多等 10s 宽限,四路最坏 40s。
+     * 实测写 Cues 在百毫秒级,真等满说明那一路已经卡死,那时慢一点也无所谓 ——
+     * 比起并行收尾省下的几秒,一个能拖进度条的文件重要得多
+     */
     public synchronized void stopSegment() {
         processes.values().forEach(ManagedProcess::stop);
         processes.clear();

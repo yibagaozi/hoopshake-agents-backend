@@ -26,10 +26,23 @@ public record ProcessSpec(
         Consumer<InputStream> stdoutConsumer,
         Consumer<InputStream> stderrConsumer,
         boolean autoRestart,
-        int maxFailures) {
+        int maxFailures,
+        String stopStdin) {
 
     public ProcessSpec {
         env = env == null ? Map.of() : Map.copyOf(env);
+    }
+
+    public ProcessSpec(String name,
+                       List<String> command,
+                       File workDir,
+                       Map<String, String> env,
+                       Consumer<InputStream> stdoutConsumer,
+                       Consumer<InputStream> stderrConsumer,
+                       boolean autoRestart,
+                       int maxFailures) {
+        this(name, command, workDir, env, stdoutConsumer, stderrConsumer,
+                autoRestart, maxFailures, null);
     }
 
     public static ProcessSpec of(String name, List<String> command) {
