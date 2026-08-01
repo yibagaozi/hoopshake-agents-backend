@@ -24,3 +24,5 @@ hoopshake:
         - /api/**
       allow-credentials: true
       max-age-seconds: 3600
+  student:
+    initial-password:
