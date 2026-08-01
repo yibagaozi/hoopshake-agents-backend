@@ -24,6 +24,9 @@ import java.util.UUID;
 @Builder
 public class InstantFeedback extends BaseEntity {
 
+    @Column(name = "event_id", unique = true, length = 128)
+    private String eventId;
+
     @Column(name = "session_id")
     private UUID sessionId;   // 可空:实时时 session 可能尚未建全
 
