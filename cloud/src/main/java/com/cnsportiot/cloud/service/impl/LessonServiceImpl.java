@@ -55,6 +55,8 @@ public class LessonServiceImpl implements LessonService {
                 .gradeBand(request.gradeBand())
                 .scheduledAt(request.scheduledAt())
                 .status(LessonStatus.PLANNED)
+                .classCode(request.classCode())
+                .durationMinutes(request.durationMinutes())
                 .build();
         Lesson saved = lessonRepository.save(lesson);
         return convertToDto(saved, 0);
@@ -96,9 +98,8 @@ public class LessonServiceImpl implements LessonService {
 
         Map<UUID, Integer> enrollCountMap = new HashMap<>();
         if (!lessonIdList.isEmpty()) {
-            for (Object[] row : lessonEnrollmentRepository.countGroupByLessonId(lessonIdList)) {
-                enrollCountMap.put((UUID) row[0], ((Long) row[1]).intValue());
-            }
+            lessonEnrollmentRepository.countGroupByLessonId(lessonIdList).forEach(row ->
+                enrollCountMap.put(row.getLessonId(), (int) row.getCount()));
         }
 
         return lessonPage.map(item ->
@@ -139,6 +140,8 @@ public class LessonServiceImpl implements LessonService {
         if (request.zoneConfigRef() != null) lesson.setZoneConfigRef(request.zoneConfigRef());
         if (request.gradeBand() != null) lesson.setGradeBand(request.gradeBand());
         if (request.scheduledAt() != null) lesson.setScheduledAt(request.scheduledAt());
+        if (request.classCode() != null) lesson.setClassCode(request.classCode());
+        if (request.durationMinutes() != null) lesson.setDurationMinutes(request.durationMinutes());
 
         Lesson updated = lessonRepository.save(lesson);
         return convertToDto(updated, 0);
@@ -195,13 +198,13 @@ public class LessonServiceImpl implements LessonService {
                 lesson.getId(),
                 lesson.getTeacherId(),
                 lesson.getTitle(),
-                null, // 实体无classCode，协议占位null
+                lesson.getClassCode(),
                 lesson.getActionTypes(),
                 lesson.getEnabledCheckpoints(),
                 lesson.getZoneConfigRef(),
                 lesson.getGradeBand(),
                 lesson.getScheduledAt(),
-                null, // 实体无durationMinutes，协议占位null
+                lesson.getDurationMinutes(),
                 lesson.getStatus(),
                 enrolledCount,
                 lesson.getCreatedAt(),
