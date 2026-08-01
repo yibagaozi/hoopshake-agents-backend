@@ -19,6 +19,7 @@ public enum ErrorCode implements ErrorCodeSpec{
     FORBIDDEN(40300, HttpStatus.FORBIDDEN, "无权访问"),
     DATA_SCOPE_DENIED(40301, HttpStatus.FORBIDDEN, "越权访问他人数据"),
     ACCOUNT_DISABLED(40310, HttpStatus.FORBIDDEN, "账号已停用"),
+    ACCOUNT_NOT_ACTIVATED(40311, HttpStatus.FORBIDDEN, "账号未激活,请先完成激活"),
 
     NOT_FOUND(40400, HttpStatus.NOT_FOUND, "资源不存在"),
 
