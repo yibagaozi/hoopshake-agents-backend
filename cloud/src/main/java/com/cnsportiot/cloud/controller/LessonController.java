@@ -1,19 +1,9 @@
 package com.cnsportiot.cloud.controller;
 
-import com.cnsportiot.cloud.common.PageResponses;
-import com.cnsportiot.cloud.domain.enums.LessonStatus;
-import com.cnsportiot.cloud.domain.enums.Role;
-import com.cnsportiot.cloud.dto.request.LessonRequests.UpdateLessonRequest;
-import com.cnsportiot.cloud.dto.request.LessonRequests.UpdateLessonStatusRequest;
-import com.cnsportiot.cloud.dto.request.LessonRequests.CreateLessonRequest;
-import com.cnsportiot.cloud.dto.response.LessonDtos.LessonResponse;
-import com.cnsportiot.cloud.security.AuthUser;
-import com.cnsportiot.cloud.annotation.CurrentUser;
-import com.cnsportiot.cloud.annotation.RequireRole;
-import com.cnsportiot.cloud.service.LessonService;
-import com.cnsportiot.contracts.common.ApiResponse;
-import com.cnsportiot.contracts.common.PageResponse;
-import jakarta.validation.Valid;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.UUID;
+
 import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,19 +15,28 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.OffsetDateTime;
-import java.util.List;
-import java.util.UUID;
+import com.cnsportiot.cloud.annotation.CurrentUser;
+import com.cnsportiot.cloud.annotation.RequireRole;
+import com.cnsportiot.cloud.common.PageResponses;
+import com.cnsportiot.cloud.domain.enums.LessonStatus;
+import com.cnsportiot.cloud.domain.enums.Role;
+import com.cnsportiot.cloud.dto.request.LessonRequests.CreateLessonRequest;
+import com.cnsportiot.cloud.dto.request.LessonRequests.UpdateLessonRequest;
+import com.cnsportiot.cloud.dto.request.LessonRequests.UpdateLessonStatusRequest;
+import com.cnsportiot.cloud.dto.response.LessonDtos.LessonLiveResponse;
+import com.cnsportiot.cloud.dto.response.LessonDtos.LessonResponse;
+import com.cnsportiot.cloud.security.AuthUser;
+import com.cnsportiot.cloud.service.LessonService;
+import com.cnsportiot.contracts.common.ApiResponse;
+import com.cnsportiot.contracts.common.PageResponse;
+
+import jakarta.validation.Valid;
 
 /** 课程管理 */
 @RestController
 @RequestMapping("/api/teacher/lessons")
 @RequireRole(Role.TEACHER)
 public class LessonController {
-
-    /** 1.4 约定的分页上限,超出即截断而非报错 */
-    private static final int MAX_PAGE_SIZE = 100;
-    private static final int DEFAULT_PAGE_SIZE = 20;
 
     private final LessonService lessonService;
 
@@ -127,5 +126,15 @@ public class LessonController {
         return ApiResponse.ok(lessonService.updateStatus(lessonId, request, me.accountId()));
     }
 
+    /** §5.9 课堂实况快照 */
+    @GetMapping("/{lessonId}/live")
+    public ApiResponse<LessonLiveResponse> live(
+            @PathVariable UUID lessonId,
+            @CurrentUser AuthUser me) {
+
+        return ApiResponse.ok(lessonService.getLive(lessonId, me.accountId()));
+    }
+
 }
+
 
