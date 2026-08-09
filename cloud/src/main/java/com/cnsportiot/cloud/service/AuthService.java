@@ -1,5 +1,6 @@
 package com.cnsportiot.cloud.service;
 
+import com.cnsportiot.cloud.dto.request.AuthRequests.ActivateRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.LoginRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.RegisterRequest;
 import com.cnsportiot.cloud.dto.response.AuthDtos.RegisterResponse;
@@ -24,4 +25,7 @@ public interface AuthService {
 
     /** 2.5 教师注册 */
     RegisterResponse register(RegisterRequest request);
+
+    /** 2.6 账号激活:PENDING_ACTIVATION → ACTIVE,设置手机号和新密码,返回新 token */
+    TokenResponse activate(ActivateRequest request, AuthUser current);
 }

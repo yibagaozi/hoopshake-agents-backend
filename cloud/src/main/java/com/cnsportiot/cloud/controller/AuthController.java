@@ -6,6 +6,7 @@ import com.cnsportiot.contracts.common.ApiResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.TokenResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.UserProfileResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.RegisterResponse;
+import com.cnsportiot.cloud.dto.request.AuthRequests.ActivateRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.LoginRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.LogoutRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.RefreshTokenRequest;
@@ -53,5 +54,12 @@ public class AuthController {
     @PostMapping("/register")
     public ApiResponse<RegisterResponse> register(@Valid @RequestBody RegisterRequest request) {
         return ApiResponse.ok(authService.register(request));
+    }
+
+    @PostMapping("/activate")
+    @RequireAuth
+    public ApiResponse<TokenResponse> activate(@Valid @RequestBody ActivateRequest request,
+                                               @CurrentUser AuthUser current) {
+        return ApiResponse.ok(authService.activate(request, current));
     }
 }

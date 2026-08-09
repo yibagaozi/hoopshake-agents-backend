@@ -33,4 +33,14 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
             WHERE s.studentNo IN :studentNos
             """)
     List<StudentRef> findRefsByStudentNoIn(@Param("studentNos") Collection<String> studentNos);
+
+    @Query("""
+            SELECT s.id          AS studentId,
+                   s.studentNo   AS studentNo,
+                   a.displayName AS displayName
+            FROM Student s
+                 JOIN Account a ON a.id = s.accountId
+            WHERE s.id IN :studentIds
+            """)
+    List<StudentRef> findRefsByIdIn(@Param("studentIds") Collection<UUID> studentIds);
 }
