@@ -1,16 +1,17 @@
 package com.cnsportiot.cloud.service.impl;
 
-import com.cnsportiot.cloud.domain.entity.Lesson;
-import com.cnsportiot.cloud.domain.enums.LessonStatus;
-import com.cnsportiot.cloud.dto.request.LessonRequests;
-import com.cnsportiot.cloud.dto.response.LessonDtos;
-import com.cnsportiot.cloud.repository.LessonEnrollmentRepository;
-import com.cnsportiot.cloud.repository.LessonRepository;
-import com.cnsportiot.cloud.service.LessonService;
-import com.cnsportiot.contracts.error.BusinessException;
-import com.cnsportiot.contracts.error.ErrorCode;
-import jakarta.persistence.criteria.Predicate;
-import lombok.RequiredArgsConstructor;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -19,9 +20,23 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.OffsetDateTime;
-import java.util.*;
-import java.util.stream.Collectors;
+import com.cnsportiot.cloud.domain.entity.Lesson;
+import com.cnsportiot.cloud.domain.enums.LessonStatus;
+import com.cnsportiot.cloud.dto.request.LessonRequests;
+import com.cnsportiot.cloud.dto.response.LessonDtos;
+import com.cnsportiot.cloud.repository.ActionClipRepository;
+import com.cnsportiot.cloud.repository.CheckpointKnowledgeRepository;
+import com.cnsportiot.cloud.repository.InstantFeedbackRepository;
+import com.cnsportiot.cloud.repository.LessonEnrollmentRepository;
+import com.cnsportiot.cloud.repository.LessonRepository;
+import com.cnsportiot.cloud.repository.TrainingSessionRepository;
+import com.cnsportiot.cloud.service.LessonService;
+import com.cnsportiot.contracts.enums.SessionStatus;
+import com.cnsportiot.contracts.error.BusinessException;
+import com.cnsportiot.contracts.error.ErrorCode;
+
+import jakarta.persistence.criteria.Predicate;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -29,6 +44,10 @@ public class LessonServiceImpl implements LessonService {
 
     private final LessonRepository lessonRepository;
     private final LessonEnrollmentRepository lessonEnrollmentRepository;
+    private final TrainingSessionRepository trainingSessionRepository;
+    private final ActionClipRepository actionClipRepository;
+    private final InstantFeedbackRepository instantFeedbackRepository;
+    private final CheckpointKnowledgeRepository checkpointKnowledgeRepository;
 
     private static final Set<String> VALID_ACTION_TYPES = new HashSet<>(Arrays.asList("shot", "layup", "dribble"));
     private static final Set<String> VALID_CHECKPOINTS = new HashSet<>(Arrays.asList("stance", "hand", "balance"));
@@ -83,7 +102,12 @@ public class LessonServiceImpl implements LessonService {
             if (toTime != null) {
                 ps.add(cb.lessThanOrEqualTo(root.get("scheduledAt"), toTime));
             }
-            return cb.and(ps.toArray(Predicate[]::new));
+            if (ps.isEmpty()) {
+                return cb.conjunction();
+            }
+            Predicate[] predicates = new Predicate[ps.size()];
+            ps.toArray(predicates);
+            return cb.and(predicates);
         };
 
         // 排序从 @Query 移到 Pageable。scheduledAt 可空,nullsLast 免得未排期的课占据首页
@@ -92,9 +116,10 @@ public class LessonServiceImpl implements LessonService {
             Sort.Order.desc("createdAt")));
 
         Page<Lesson> lessonPage = lessonRepository.findAll(spec, pageable);
-        List<UUID> lessonIdList = lessonPage.getContent().stream()
-            .map(Lesson::getId)
-            .toList();
+        List<UUID> lessonIdList = new ArrayList<>();
+        for (Lesson lesson : lessonPage.getContent()) {
+            lessonIdList.add(lesson.getId());
+        }
 
         Map<UUID, Integer> enrollCountMap = new HashMap<>();
         if (!lessonIdList.isEmpty()) {
@@ -113,6 +138,72 @@ public class LessonServiceImpl implements LessonService {
         Lesson lesson = checkLessonOwner(lessonId, loginTeacherId);
         long enrollTotal = lessonEnrollmentRepository.countByLessonId(lessonId);
         return convertToDto(lesson, (int) enrollTotal);
+    }
+
+    /** §5.9 课堂实况快照 */
+    @Override
+    public LessonDtos.LessonLiveResponse getLive(UUID lessonId, UUID loginTeacherId) {
+        Lesson lesson = checkLessonOwner(lessonId, loginTeacherId);
+
+        var activeSession = trainingSessionRepository
+                .findFirstByLessonIdAndStatusNotOrderByRecordedAtDesc(lessonId, SessionStatus.REPORT_READY)
+                .orElse(null);
+
+        if (activeSession == null) {
+            return new LessonDtos.LessonLiveResponse(
+                    lessonId,
+                    lesson.getStatus(),
+                    null,
+                    0,
+                    new HashMap<>(),
+                    new ArrayList<>(),
+                    new ArrayList<>());
+        }
+
+        UUID sessionId = activeSession.getId();
+        int presentStudentCount = (int) actionClipRepository.countDistinctStudentIdBySessionId(sessionId);
+        Map<String, Long> clipCountByAction = actionClipRepository.countClipByActionType(sessionId).stream()
+                .collect(Collectors.toMap(
+                        ActionClipRepository.ClipCountByAction::getActionType,
+                        ActionClipRepository.ClipCountByAction::getClipCount));
+
+        List<LessonDtos.LiveFeedbackItem> recentFeedback = new ArrayList<>();
+        for (InstantFeedbackRepository.FeedbackView f : instantFeedbackRepository.findRecentBySessionId(sessionId, PageRequest.of(0, 20))) {
+            recentFeedback.add(new LessonDtos.LiveFeedbackItem(
+                    f.getFeedbackId(),
+                    f.getStudentId(),
+                    f.getDisplayName(),
+                    f.getActionType(),
+                    f.getCheckpointId(),
+                    f.getSeverity(),
+                    f.getCueText(),
+                    f.getOccurredAt()));
+        }
+
+        List<String> safetyCheckpointIds = checkpointKnowledgeRepository.findSafetyCheckpointIds();
+        List<LessonDtos.SafetyAlertResponse> safetyAlerts = new ArrayList<>();
+        if (!safetyCheckpointIds.isEmpty()) {
+            for (InstantFeedbackRepository.FeedbackView f : instantFeedbackRepository.findRecentSafetyBySessionIdAndCheckpointIds(sessionId, safetyCheckpointIds, PageRequest.of(0, 20))) {
+                safetyAlerts.add(new LessonDtos.SafetyAlertResponse(
+                        f.getFeedbackId(),
+                        f.getStudentId(),
+                        f.getDisplayName(),
+                        f.getActionType(),
+                        f.getCheckpointId(),
+                        f.getSeverity(),
+                        f.getCueText(),
+                        f.getOccurredAt()));
+            }
+        }
+
+        return new LessonDtos.LessonLiveResponse(
+                lessonId,
+                lesson.getStatus(),
+                new LessonDtos.ActiveSession(sessionId, activeSession.getStatus(), activeSession.getRecordedAt()),
+                presentStudentCount,
+                clipCountByAction,
+                recentFeedback,
+                safetyAlerts);
     }
 
     /** §5.4 更新课程配置 */
