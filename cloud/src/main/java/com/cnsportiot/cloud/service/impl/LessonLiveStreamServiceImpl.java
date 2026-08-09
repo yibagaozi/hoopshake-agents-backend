@@ -94,13 +94,13 @@ public class LessonLiveStreamServiceImpl implements LessonLiveStreamService {
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onLessonLiveEvent(LessonLiveEvent event) {
-        List<SseEmitter> lessonEmitters = emitters.get(event.lessonId());
+        List<SseEmitter> lessonEmitters = emitters.get(event.getLessonId());
         if (lessonEmitters == null || lessonEmitters.isEmpty()) {
             return;
         }
 
         for (SseEmitter emitter : lessonEmitters) {
-            sendEvent(emitter, event.eventType(), event.payload());
+            sendEvent(emitter, event.getEventType(), event.getPayload());
         }
     }
 
