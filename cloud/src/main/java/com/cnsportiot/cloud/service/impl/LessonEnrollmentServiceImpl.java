@@ -1,5 +1,20 @@
 package com.cnsportiot.cloud.service.impl;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.cnsportiot.cloud.domain.entity.Lesson;
 import com.cnsportiot.cloud.domain.enums.LessonStatus;
 import com.cnsportiot.cloud.dto.request.EnrollmentRequests.ImportEnrollmentRequest;
@@ -17,21 +32,8 @@ import com.cnsportiot.cloud.service.LessonEnrollmentService;
 import com.cnsportiot.cloud.service.StudentProvisioningService;
 import com.cnsportiot.contracts.error.BusinessException;
 import com.cnsportiot.contracts.error.ErrorCode;
-import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-import java.util.function.Function;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -51,7 +53,7 @@ public class LessonEnrollmentServiceImpl implements LessonEnrollmentService {
     public List<EnrollmentItem> list(UUID lessonId, UUID loginTeacherId) {
         requireOwnedLesson(lessonId, loginTeacherId);
 
-        return toItems(lessonId, Set.of());
+        return toItems(lessonId, new java.util.LinkedHashSet<>());
     }
 
     // 5.7 批量导入
@@ -111,7 +113,7 @@ public class LessonEnrollmentServiceImpl implements LessonEnrollmentService {
                 .stream()
                 .collect(Collectors.toMap(StudentRef::getStudentNo, Function.identity(),
                         (a, b) -> a, LinkedHashMap::new));
-        Set<UUID> enrolled = Set.copyOf(enrollmentRepository.findStudentIdsByLessonId(lessonId));
+        Set<UUID> enrolled = new java.util.LinkedHashSet<>(enrollmentRepository.findStudentIdsByLessonId(lessonId));
 
         List<PreviewItem> willCreate = new ArrayList<>();
         List<PreviewItem> willEnroll = new ArrayList<>();
@@ -156,7 +158,7 @@ public class LessonEnrollmentServiceImpl implements LessonEnrollmentService {
     }
 
     private Map<String, UUID> findExistingIds(java.util.Collection<String> studentNos) {
-        return studentRepository.findRefsByStudentNoIn(List.copyOf(studentNos)).stream()
+        return studentRepository.findRefsByStudentNoIn(new ArrayList<>(studentNos)).stream()
                 .collect(Collectors.toMap(StudentRef::getStudentNo, StudentRef::getStudentId,
                         (a, b) -> a, LinkedHashMap::new));
     }
