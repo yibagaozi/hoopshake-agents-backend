@@ -107,7 +107,7 @@ public class StudentManageServiceImpl implements StudentManageService {
 
     @Override
     public PageResponse<StudentBriefResponse> listStudents(String keyword, int page, int size) {
-        PageRequest pageable = PageRequest.of(page, size);
+        PageRequest pageable = PageRequest.of(PageResponses.normalizePage(page), PageResponses.normalizeSize(size));
         Page<StudentRepository.StudentBrief> result = studentRepository.findBriefsByKeyword(keyword, pageable);
         return PageResponses.from(result, record -> new StudentBriefResponse(
                 record.getStudentId(),
