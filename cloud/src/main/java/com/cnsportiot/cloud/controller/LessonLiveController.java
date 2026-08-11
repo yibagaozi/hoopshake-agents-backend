@@ -26,10 +26,10 @@ public class LessonLiveController {
         this.liveStreamService = liveStreamService;
     }
 
-    @GetMapping("/{lessonId}/live/stream")
-    public ApiResponse<SseEmitter> stream(
+    @GetMapping(value = "/{lessonId}/live/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream(
             @PathVariable UUID lessonId,
             @CurrentUser AuthUser me) {
-        return ApiResponse.ok(liveStreamService.stream(lessonId, me.accountId()));
+        return liveStreamService.stream(lessonId, me.accountId());
     }
 }
