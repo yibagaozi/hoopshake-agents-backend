@@ -32,7 +32,7 @@ public class LessonLiveStreamServiceImpl implements LessonLiveStreamService {
 
     private final LessonService lessonService;
 
-    private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+    private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(2, r -> {
         Thread t = new Thread(r, "lesson-live-heartbeat");
         t.setDaemon(true);
         return t;
