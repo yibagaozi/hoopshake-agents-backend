@@ -1,13 +1,14 @@
 package com.cnsportiot.cloud.service;
 
-import com.cnsportiot.cloud.dto.request.LessonRequests;
-import com.cnsportiot.cloud.dto.response.LessonDtos;
-import com.cnsportiot.cloud.domain.enums.LessonStatus;
-import org.springframework.data.domain.Page;
-
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
+
+import org.springframework.data.domain.Page;
+
+import com.cnsportiot.cloud.domain.enums.LessonStatus;
+import com.cnsportiot.cloud.dto.request.LessonRequests;
+import com.cnsportiot.cloud.dto.response.LessonDtos;
 
 public interface LessonService {
 
@@ -30,4 +31,7 @@ public interface LessonService {
 
     /** §5.5 状态推进 */
     LessonDtos.LessonResponse updateStatus(UUID lessonId, LessonRequests.UpdateLessonStatusRequest request, UUID loginTeacherId);
+
+    /** §5.9 课堂实况 */
+    LessonDtos.LessonLiveResponse getLive(UUID lessonId, UUID loginTeacherId);
 }
