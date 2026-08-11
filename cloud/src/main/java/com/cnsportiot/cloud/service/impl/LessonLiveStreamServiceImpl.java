@@ -87,7 +87,7 @@ public class LessonLiveStreamServiceImpl implements LessonLiveStreamService {
     private void sendEvent(SseEmitter emitter, String eventName, Object payload) {
         try {
             emitter.send(SseEmitter.event().name(eventName).data(payload));
-        } catch (IOException e) {
+        } catch (IOException | IllegalStateException e) {
             removeEmitter(emitter);
         }
     }
