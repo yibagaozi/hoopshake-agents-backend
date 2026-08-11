@@ -1,5 +1,6 @@
 package com.cnsportiot.cloud.security;
 
+import com.cnsportiot.cloud.domain.enums.AccountStatus;
 import com.cnsportiot.cloud.domain.enums.Role;
 
 import java.util.UUID;
@@ -9,10 +10,15 @@ public record AuthUser(
         UUID accountId,
         String username,
         Role role,
-        UUID studentId) {
+        UUID studentId,
+        AccountStatus status) {
 
     public boolean isStudent() {
         return role == Role.STUDENT;
+    }
+
+    public boolean isActivated() {
+        return status != AccountStatus.PENDING_ACTIVATION;
     }
 
     public boolean hasRole(Role... roles) {

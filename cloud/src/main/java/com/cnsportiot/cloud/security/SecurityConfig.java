@@ -44,7 +44,8 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/api/auth/login",
                     "/api/auth/refresh",
-                    "/api/auth/register").permitAll()
+                    "/api/auth/register",
+                    "/api/auth/activate").permitAll()
                 .requestMatchers("/api/parent/**").permitAll()   // 由 Controller 统一返回 501
                 .requestMatchers("/actuator/health", "/error").permitAll()
                 .requestMatchers("/api/ingest/**").permitAll()   // 由 ServiceTokenFilter 校验

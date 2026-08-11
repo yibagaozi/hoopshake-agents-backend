@@ -31,5 +31,9 @@ public final class AuthRequests {
             @Size(max = 32) String phone,
             /** 邀请码;服务端配置了 invite-code 时必填且需匹配 */
             String inviteCode) {}
+
+    public record ActivateRequest(
+            @Size(max = 32) String phone,
+            @NotBlank(message = "新密码不能为空") @Size(min = 6, max = 64) String newPassword) {}
 }
 
