@@ -81,5 +81,26 @@ public final class IngestRequests {
     public record CameraStatus(
             @NotBlank String cameraId,
             boolean online) {}
+
+    /** 10.2 ActionClip 批量入库(以 sessionId+studentId+clipIndex 幂等) */
+    public record ActionClipBatchRequest(
+            @NotNull UUID sessionId,
+            @NotEmpty @Valid List<ClipItem> items) {
+
+        public record ClipItem(
+                @NotNull UUID studentId,
+                @NotNull Integer clipIndex,
+                @NotBlank @Size(max = 24) String actionType,
+                @NotNull BigDecimal startMs,
+                @NotNull BigDecimal endMs,
+                BigDecimal releaseMs,
+                @Size(max = 16) String anchorCamera,
+                @Size(max = 32) String zoneId,
+                List<Map<String, Object>> phases,
+                Boolean shotMade,
+                Map<String, Object> score,
+                @Size(max = 512) String motionUri,
+                Map<String, Object> motionRange) {}
+    }
 }
 

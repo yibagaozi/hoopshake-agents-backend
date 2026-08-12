@@ -1,10 +1,14 @@
 package com.cnsportiot.cloud.repository;
 
+import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.cnsportiot.contracts.enums.DominantHand;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -25,7 +29,7 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
         String getStudentNo();
         String getDisplayName();
         String getGradeBand();
-        com.cnsportiot.contracts.enums.DominantHand getDominantHand();
+        DominantHand getDominantHand();
         boolean isGalleryReady();
     }
 
@@ -33,7 +37,7 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
         UUID getStudentId();
         String getStudentNo();
         String getDisplayName();
-        com.cnsportiot.contracts.enums.DominantHand getDominantHand();
+        DominantHand getDominantHand();
         java.math.BigDecimal getHeightCm();
         java.math.BigDecimal getLegLengthCm();
         String getGradeBand();
@@ -41,7 +45,7 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
         Integer getGalleryVersion();
         String getGalleryStatus();
         Integer getGallerySampleCount();
-        java.time.OffsetDateTime getGalleryEnrolledAt();
+        OffsetDateTime getGalleryEnrolledAt();
     }
 
     /** 按学号查已存在的学生 */
@@ -78,7 +82,7 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
             WHERE (:kw IS NULL OR student_no LIKE concat(:kw, '%') OR display_name LIKE concat('%', :kw, '%'))
             """,
             nativeQuery = true)
-    org.springframework.data.domain.Page<StudentBrief> findBriefsByKeyword(@Param("kw") String keyword, org.springframework.data.domain.Pageable pageable);
+    Page<StudentBrief> findBriefsByKeyword(@Param("kw") String keyword, Pageable pageable);
 
     @Query(value = """
             SELECT s.id              AS studentId,
@@ -100,5 +104,15 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
               AND a.status = 'ACTIVE'
             """,
             nativeQuery = true)
-    java.util.Optional<StudentDetail> findActiveDetailByStudentId(@Param("studentId") UUID studentId);
+    Optional<StudentDetail> findActiveDetailByStudentId(@Param("studentId") UUID studentId);
+
+    @Query("""
+            SELECT s.id          AS studentId,
+                   s.studentNo   AS studentNo,
+                   a.displayName AS displayName
+            FROM Student s
+                 JOIN Account a ON a.id = s.accountId
+            WHERE s.id IN :studentIds
+            """)
+    List<StudentRef> findRefsByIdIn(@Param("studentIds") Collection<UUID> studentIds);
 }
