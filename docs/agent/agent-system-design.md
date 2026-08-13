@@ -398,17 +398,30 @@ Spring AI `PgVectorStore` 表结构(它自建):`id uuid, content text, metadata 
 
 > 管理端能力,不属学生/教师两个前端。前端**只消费召回**,不导入。
 
-每篇文档元数据:`doc_id`、`source`(`textbook` / `team`)、`domain`(如 `shooting`)、`checkpoint_id`(**当前留空**)、`version`、`section_title`。
+每篇文档元数据:`doc_id`、`source`(`textbook` / `team`)、`domain`(如 `shooting`)、`checkpoint_id`(**当前留空**)、`version`;每个 chunk 再带 `heading_path` + `section_title`(§8.3)。
 
-### 8.2 读取与解析(Spring AI DocumentReader)
+### 8.2 读取与解析 —— Word 要不要转 Markdown?怎么保住多级标题
 
-`adapter/spring` 里:
+**结论:教科书(.docx)先转成 Markdown 再入库,别直接喂 Tika。** 原因是本设计的切分完全依赖**标题层级**(§8.3 按标题切、并把标题路径拼进 chunk 做上下文头),而 Word 的层级信息恰恰是直接抽取会丢的那部分。
 
-- markdown → `MarkdownDocumentReader`(保留标题层级为 metadata);
-- pdf/docx → `TikaDocumentReader`;
-- txt → `TextReader`。
+**为什么不直接 `TikaDocumentReader` 读 docx**:Tika 把 docx 抽成**扁平纯文本**——Word 里"这段是 Heading 1、那段是 Heading 2"的**样式级层级信息被抹平**,标题和正文混成一片看不出层级。那样就只能靠"一、/ (一)/ 1." 这类**编号文字**去猜层级:样本里编号恰好齐全能凑合,但凡有个没编号的标题(纯靠 Word 样式加粗的),就归错层,上下文头也就拼错了。
 
-产出 `List<Document>`(每篇通常先是一个大 Document,再进切分)。
+**规范化路线:一切先归一到 Markdown 作为中间格式**,因为 Markdown 用 `#/##/###` 把层级写成**显式、无歧义**的东西,`MarkdownDocumentReader` 能直接把标题层级读成 metadata:
+
+| 来源 | 处理 |
+|---|---|
+| `.md`(整理稿,或已转好的教科书) | 直接 `MarkdownDocumentReader`,标题层级 → metadata |
+| `.docx`(教科书) | **先转 Markdown**:Word 的 Heading 1/2/3 样式 → `#/##/###`,再走 MarkdownDocumentReader |
+| `.pdf` | `TikaDocumentReader` 抽文本 + 编号正则兜底(pdf 没有可靠样式层级,只能这样) |
+| `.txt` | `TextReader` + 编号/空行正则 |
+
+**docx → Markdown 用什么转、在哪转**(两种,按你运维习惯选):
+- **离线转(推荐种子知识)**:教研用 **Pandoc**(`pandoc a.docx -t gfm -o a.md`,对标题/列表/表格保真最好)把书转成 .md,人工瞄一眼层级对不对,再提交进 `classpath:knowledge/`。零运行期依赖,首发内容走这条。
+- **在线转(admin API 上传 .docx)**:服务端转。要么挂 Pandoc 二进制(像 edge 挂 ffmpeg 那样,属运维依赖),要么用纯 Java 的 `docx4j`/POI 遍历段落样式生成 Markdown(无外部二进制,但表格/嵌套列表保真不如 Pandoc)。**建议一期只在线接 .md,.docx 走离线 Pandoc**——省掉服务端进程管理,教研转一次的成本远低于维护一个转换子进程。
+
+**⚠ Word 常见脏点(转 md 前后要处理)**:手动敲的空格缩进冒充层级、软换行(Shift+Enter)把一段拆成多行、全角/半角编号混用、图片/文本框。Pandoc 能消化大部分;POI 路线要自己清。转完**以 Markdown 为准**做后续切分。
+
+产出:每篇是一个带完整标题层级的 Markdown Document,再进 §8.3 切分。
 
 ### 8.3 切分(Chunking)—— 怎么切、切多大(按你的两份样本定)
 
@@ -423,27 +436,39 @@ Spring AI `PgVectorStore` 表结构(它自建):`id uuid, content text, metadata 
 
 结论:**两份语料的语义单元都落在 ~200~430 token,没有超过 ~450 的**。所以真正起作用的是"**在语义边界切、不要切碎也不要跨单元合并**",token 数只是防跑飞的上限。
 
-**策略:结构优先(硬边界)+ token 上限(兜底)**:
+**策略:标题树优先(硬边界)+ token 上限(兜底)**。先把 Markdown(§8.2)解析成**标题树**——每个节点是 `(标题, 层级, 正文, 子节点)`,然后:
 
-1. **结构切(硬边界,绝不跨越)**:按有序分隔符递归切——`①标题(一、/ 1. / (一))` → `②"优先级 N" 标记` → `③空行分段` → `④句末。`。
-   - 整理稿:**每个"优先级 N"块 = 一个 chunk**(它本身就是一个完整、可召回的纠正建议;把"辅助手"块和"下肢发力"块合进一个 chunk 会让召回不纯)。
-   - 教科书:**每个技术小节 = 一个 chunk**;小节若超上限,再按标注段("技术动作要点"/"持球手法"/…)切,不在句子中间断。
-2. **token 上限兜底**:仅当一个语义块超 **`chunkMaxTokens = 450`** 才二次切;因为样本单元都 <450,这条基本不触发——是保险,不是主刀。
-3. **重叠**:**结构边界之间不重叠**(一个"优先级"块不该把下一块的"错误表现"漏进来);只有当一个长块被 token 二次切时,才在切点加 **~40 token** 重叠,避免断在半句。
-4. **上下文头(关键增召回技巧)**:每个 chunk 的**被嵌入文本前缀其层级标题**,如
-   `原地罚篮 › 优先级2 辅助手参与发力\n错误表现:…`。
-   这样即便正文没重复"辅助手",查询"投篮时另一只手怎么放"也能靠标题命中——对这种层级化教研稿,召回质量提升明显。标题同时存 `section_title` 元数据。
-5. 每个 chunk 继承父文档 metadata + `section_title` + `chunk_index`。
+1. **在"有正文的最小标题节"成块,不是每级标题都成块**。教科书层级像:
+   ```
+   投篮技术(H1)
+     └ 投篮技术与方法(H2)
+         └ (一)原地投篮(H3)
+             └ 1.原地立定投篮(H4)   ← 正文在这一层:描述+技术要点+持球+练习
+   ```
+   `H1/H2/H3` 只是路径、**自身没有正文**,不单独成 chunk;chunk 在 **H4"1.原地立定投篮"**这层形成(整节 ~320~430 token = 一个 chunk)。整理稿同理:chunk 在"优先级 N"块这层形成。
+   - **每个"优先级 N"块 = 一个 chunk**(完整可召回的纠正建议;把"辅助手"和"下肢发力"合一块会让召回不纯)。
+   - **每个技术小节 = 一个 chunk**;小节超上限再按标注段("技术动作要点"/"持球手法"/…)切,不在句子中间断。
+2. **多级标题 → 面包屑路径,而不是丢掉**。上层标题不成块,但**沿路径拼成面包屑**跟着 chunk 走:
+   - **上下文头(关键增召回技巧)**:chunk 的**被嵌入文本前缀整条标题路径**——
+     `投篮技术 › 原地投篮 › 原地立定投篮 › 技术动作要点\n以右手投篮为例,从持球基本姿势开始…`
+     这样即便正文没重复"原地投篮",查询"原地投篮的出手动作"也能靠路径命中。对整理稿则是 `原地罚篮 › 优先级2 辅助手参与发力\n错误表现:…`。
+   - **路径同时存 metadata**:`heading_path`(数组,如 `["投篮技术","原地投篮","原地立定投篮","技术动作要点"]`)+ `section_title`(叶子标题)。将来算法侧就位,按 `heading_path` 定位并回填 `checkpoint_id` 很方便(§8.1 reindex)。
+3. **token 上限兜底**:仅当一个叶子节超 **`chunkMaxTokens = 450`** 才二次切;样本单元都 <450,基本不触发——是保险不是主刀。
+4. **重叠**:**结构边界之间不重叠**(一个"优先级"块不该漏进下一块的"错误表现");只有长叶子被 token 二次切时,才在切点加 **~40 token** 重叠,避免断在半句。
+5. **过小节点上并**:纯标题节点、或正文极短的节点(< `minChunkChars`,如孤立"教练口诀")**并入父/相邻块**,不产出只有一行标题的空 chunk。
+6. 每个 chunk 继承父文档 metadata + `heading_path` + `section_title` + `chunk_index`。
 
 参数(进 catalog 记录以便 reindex 复现):
 
 ```
-splitStrategy   = STRUCTURE_FIRST         // 有序分隔符递归,非纯 token 切
+splitStrategy   = HEADING_TREE_FIRST      // 先解析标题树,在叶子节成块;非纯 token 切
 chunkMaxTokens  = 450                      // 兜底上限(样本单元均 <450,极少触发)
-chunkOverlap    = 40                       // 仅长块被二次切时生效;结构边界间为 0
-minChunkChars   = 120                      // 过短碎块(如孤立口诀)并入其父块
-prependSectionHeader = true                // 上下文头,增召回
+chunkOverlap    = 40                       // 仅长叶子被二次切时生效;结构边界间为 0
+minChunkChars   = 120                      // 纯标题节点 / 过短节点上并
+prependHeadingPath = true                  // 面包屑上下文头,增召回
 ```
+
+> Spring AI 侧:`MarkdownDocumentReader` 读出的每个 Document 已带"当前所在标题"的 metadata,`heading_path` 由此累积;叶子超限时才叠一层 `TokenTextSplitter`。整条链在 `adapter/spring`。
 
 **为什么不用一刀切的 `TokenTextSplitter`**:纯 token 切会无视"优先级"块和标注段这些**有意义的边界**,可能把一个纠正建议劈成两半、或把两个错误类型塞进一块。你的整理稿是天然按块组织的,顺着它切召回最准。教科书用同一套有序分隔符也能优雅退化到段落切。
 
