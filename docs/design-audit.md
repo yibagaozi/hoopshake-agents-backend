@@ -39,7 +39,7 @@
 **附带问题(存储路线)**:实体注释想让"实体存元数据、embedding 走 VectorStore",但这会变成**一份内容两处存**(实体表 + 向量表),正好违背技术 §8.2"pgvector 一站式、免维护双存储一致性"的选型初衷。
 
 **建议**(设计 §8 已完整给出):
-- 存储:用 Spring AI `PgVectorStore` **自管表**作为 chunk 唯一存储(内容+metadata+embedding 三合一),另置一张轻量 catalog 表记源文档便于重导/下架;废弃两个实体的 chunk 存储职责(设计 §8.0 方案 A,**待确认**)。
+- 存储(✅ 已定,方案 A):用 Spring AI `PgVectorStore` **自管表**作为 chunk 唯一存储(内容+metadata+embedding 三合一),另置一张轻量 catalog 表记源文档便于重导/下架;废弃两个实体的 chunk 存储职责(设计 §8.0)。
 - 管线:seed loader + admin API 导入(§8.1),结构优先+token 兜底切分 400/60(§8.3),批量幂等灌库(§8.4),Modular RAG 召回、以 tool 方式接进 ReAct(§8.5/8.6)。
 
 ---

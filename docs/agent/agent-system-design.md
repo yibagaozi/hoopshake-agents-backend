@@ -170,8 +170,8 @@ AgentRuntime.stream(inv, sink)
   iter1  LLM 思考 → 决定调 GetProgressTrend{actionType:jump_shot}
          Hook 注入 studentId → 执行 → 命中"命中率近三次下滑"
   iter2  LLM 决定调 GetInstantFeedbackLog → 见多次"肘外翻/出手时机晚"
-  iter3  LLM 决定调 SearchCheckpointKnowledge{checkpointId:elbow_alignment}(RAG,§8)
-         召回"肘外翻纠正练习"
+  iter3  LLM 决定调 SearchKnowledge{query:"投篮肘外翻 怎么纠正"}(RAG,§8;纯语义,不带 checkpoint)
+         召回"辅助手/发力链 纠正练习"片段
   iter4  LLM 综合三路数据生成回答(双路数据结合,技术 §4.4)
          → Reflection 策略判定(涉动作纠正/长输出)→ 命中则自评一次(§4.4)
   done   落库 + 建议追问
@@ -332,9 +332,9 @@ record ToolSpec(
 | `GetInstantFeedbackLog` | `instant_feedback` | ✔ |
 | `GetProgressTrend` | 跨 session 聚合(与 §4.7/§6.5 共用 SQL) | ✔ |
 | `GetActionDetail` | `action_clip` 单条 | ✔ |
-| `SearchCheckpointKnowledge` | RAG(§8.5) | ✘(客观知识,无 scope) |
+| `SearchKnowledge` | RAG(§8.5) | ✘(客观知识,无 scope) |
 
-**红线**(技术 §4.4):学生工具只读结论层(action_clip / session_aggregate / instant_feedback),**绝不碰逐帧 MotionRecord**(在 MinIO,LLM 用不上)。`requiresStudentScope=true` 全受 §5.3 Hook 管;`SearchCheckpointKnowledge` 是唯一 scope=✘,因知识全校共享。
+**红线**(技术 §4.4):学生工具只读结论层(action_clip / session_aggregate / instant_feedback),**绝不碰逐帧 MotionRecord**(在 MinIO,LLM 用不上)。`requiresStudentScope=true` 全受 §5.3 Hook 管;`SearchKnowledge` 是唯一 scope=✘,因知识全校共享。
 
 ### 7.3 教师工具集(二期,Curriculum)
 
@@ -367,35 +367,38 @@ LLM 决定 GetRecentClips{limit:5}
 
 > 本节是本轮重点。RAG = 客观知识(篮球原理、检查点讲解、纠正练习);Memory = 学生个人历史(§8.7)。边界一句话:**"投篮为什么屈膝"走 RAG;"我上周投篮怎样"走 Memory + 结论层工具。**
 
-### 8.0 存储决策(需你确认)
+### 8.0 存储决策(✅ 已定:方案 A)
 
 用 **Spring AI `PgVectorStore` 自管表**为 RAG 的**唯一存储**(chunk 内容 + metadata + embedding 三合一),不走 JPA 双写——呼应技术 §8.2"pgvector 一站式,免维护双存储一致性"。
 
 - 知识库:一个 VectorStore bean → 表 `knowledge_vector_store`。
 - 记忆库:另一个 VectorStore bean → 表 `memory_vector_store`(§8.7;隐私与访问模式不同,分表)。
-- **现有 `CheckpointKnowledge` / `EpisodicMemory` JPA 实体的定位调整**:
-  - 方案 A(推荐):废弃这两个实体的 chunk 存储职责,chunk 全交 VectorStore;只保留一张轻量 catalog 表 `knowledge_document`(记 `doc_id / domain / checkpoint_id? / version / source / imported_at`)供"哪些源文档已导入、便于重导与下架"。
-  - 方案 B:保留实体作为 chunk 表,自己接 pgvector `vector` 列(需自定义 Type)——回到双写,不推荐。
-  - **⇒ 待确认:采用方案 A?** 影响 §8.4 的表结构。
+- **`CheckpointKnowledge` / `EpisodicMemory` 两个 JPA 实体的 chunk 存储职责废弃**:chunk 全交 VectorStore;另置一张轻量 catalog 表 `knowledge_document`(记 `doc_id / source / domain / checkpoint_id?(暂空,见 §8.1)/ version / chunk_count / split_params / content_hash / imported_at`)供"哪些源文档已导入、便于重导与下架"。**记忆不需要 catalog**(按学生查即可)。
 
 Spring AI `PgVectorStore` 表结构(它自建):`id uuid, content text, metadata jsonb, embedding vector(1024)`;相似度 `COSINE`(与技术 §6.2 一致)。
 
 ### 8.1 导入(Import)—— 文档从哪来、怎么进来
 
-**知识来源**:教研/教练产出的篮球原理、每个检查点的教学讲解与纠正练习,格式 markdown / docx / pdf / txt。
+**知识来源**(两类,结构差异大,切分要都能处理,见 §8.3):
+- **教科书**:连续散文,层级标题 + 段落(示例:"投篮技术 › (一)原地投篮 › 1.原地立定投篮 › 技术动作要点…")。
+- **团队整理稿**:高度结构化,按"优先级 N(错误类型)"分块,每块含 `错误表现 / 纠正核心 / 动作要领(若干子点)/ 教练口诀`(示例:"原地罚篮 8 项 › 优先级2 辅助手参与发力")。
+
+格式 markdown / docx / pdf / txt。
+
+**⚠ checkpoint 暂不对齐**:算法侧检查点体系尚未就位,整理稿目前**无法对齐 `checkpoint_id`**。故本阶段**一律按普通文本导入**,`checkpoint_id` 元数据留空;召回走**纯语义检索**(§8.5),不依赖 checkpoint。将来算法侧就位后,用 §8.1 的 `reindex` 或元数据回填给 chunk 补 `checkpoint_id` 即可,**存储与切分设计不受影响**。
 
 **两个入口**:
 
 1. **启动种子加载(boot seed)**:`KnowledgeSeedLoader` 扫描 `classpath:knowledge/**`,启动时确保种子知识入库,**幂等**(按 `doc_id + content_hash` 跳过未变化)。开发/首发用。
-2. **管理 API(运维/教研,非学生/教师前端)**:
-   - `POST /api/admin/knowledge/documents`(role=ADMIN)上传或登记一篇文档 → 触发切分灌库 → 返回 `{docId, chunks, version}`。
+2. **管理 API(运维/教研,非学生/教师前端,role=ADMIN)**:
+   - `POST /api/admin/knowledge/documents` 上传/登记一篇文档 → **异步**切分灌库,返回 `{taskId}`;`GET .../tasks/{taskId}` 轮询 `{status, docId, chunks}`。(异步:大文档 embedding 慢,不阻塞请求;与教师端 Curriculum 的 async_tasks 复用同一状态机。)
    - `GET /api/admin/knowledge/documents` 列已导入源文档(读 catalog)。
-   - `DELETE /api/admin/knowledge/documents/{docId}` 下架(删该 doc 的所有 chunk,§8.4)。
-   - `POST /api/admin/knowledge/documents/{docId}/reindex` 重切重灌(改了切分参数或换 embedding 模型时)。
+   - `DELETE /api/admin/knowledge/documents/{docId}` 下架(删该 doc 全部 chunk,§8.4)。
+   - `POST /api/admin/knowledge/documents/{docId}/reindex` 重切重灌(改切分参数、换 embedding 模型、或将来补 checkpoint 对齐时)。
 
-> 这几个是**管理端**能力,不属学生/教师两个前端;放 admin 前缀、ADMIN 角色。学生/教师前端**只消费召回**,不导入。
+> 管理端能力,不属学生/教师两个前端。前端**只消费召回**,不导入。
 
-每篇文档携带元数据:`doc_id`(稳定标识)、`domain`(如 `checkpoint` / `principle`)、`checkpoint_id`(可选,能对上就带,对不上不阻塞——本轮不追问词表)、`version`、`source`。
+每篇文档元数据:`doc_id`、`source`(`textbook` / `team`)、`domain`(如 `shooting`)、`checkpoint_id`(**当前留空**)、`version`、`section_title`。
 
 ### 8.2 读取与解析(Spring AI DocumentReader)
 
@@ -407,26 +410,44 @@ Spring AI `PgVectorStore` 表结构(它自建):`id uuid, content text, metadata 
 
 产出 `List<Document>`(每篇通常先是一个大 Document,再进切分)。
 
-### 8.3 切分(Chunking)—— 怎么切、切多大
+### 8.3 切分(Chunking)—— 怎么切、切多大(按你的两份样本定)
 
-**为什么切**:整篇太长,召回要"命中最相关的一段"塞进 prompt(受预算 §5.2),不是整篇灌进去。
+**为什么切**:召回要"命中最相关的一段"塞进 prompt(受预算 §5.2),不是整篇灌进去。切得太大→一个 chunk 混了多个主题,召回被无关内容稀释;切得太小→一句话丢了上下文。
 
-**策略:结构优先 + token 兜底**:
+**先量样本的自然语义单元(这决定 chunk 大小,不是拍脑袋定 token 数)**:
 
-1. 先按结构切:markdown 用标题/段落边界,把一篇切成"语义块"(一个检查点讲解、一个纠正练习各成块);
-2. 过长的语义块再用 `TokenTextSplitter` 二次切,目标 **~400 token/块**,**块间重叠 ~15%(约 60 token)**——重叠是为了不把一句连贯讲解从中间切断导致召回半句。
-3. 每个 chunk 继承父文档 metadata,并补 `section_title`、`chunk_index`。
+| 样本 | 自然单元 | 单元规模(中文字≈0.9~1.3 token) |
+|---|---|---|
+| 整理稿 | 一个"优先级 N"块(错误表现+纠正核心+动作要领+口诀) | ~200~260 字 ≈ **200~320 token** |
+| 教科书 | 一个技术小节(如"原地立定投篮")或其中一个标注段(如"技术动作要点") | 小节 ~320~430 token;单段 ~50~150 token |
 
-参数(可调,进 catalog 记录以便 reindex 复现):
+结论:**两份语料的语义单元都落在 ~200~430 token,没有超过 ~450 的**。所以真正起作用的是"**在语义边界切、不要切碎也不要跨单元合并**",token 数只是防跑飞的上限。
+
+**策略:结构优先(硬边界)+ token 上限(兜底)**:
+
+1. **结构切(硬边界,绝不跨越)**:按有序分隔符递归切——`①标题(一、/ 1. / (一))` → `②"优先级 N" 标记` → `③空行分段` → `④句末。`。
+   - 整理稿:**每个"优先级 N"块 = 一个 chunk**(它本身就是一个完整、可召回的纠正建议;把"辅助手"块和"下肢发力"块合进一个 chunk 会让召回不纯)。
+   - 教科书:**每个技术小节 = 一个 chunk**;小节若超上限,再按标注段("技术动作要点"/"持球手法"/…)切,不在句子中间断。
+2. **token 上限兜底**:仅当一个语义块超 **`chunkMaxTokens = 450`** 才二次切;因为样本单元都 <450,这条基本不触发——是保险,不是主刀。
+3. **重叠**:**结构边界之间不重叠**(一个"优先级"块不该把下一块的"错误表现"漏进来);只有当一个长块被 token 二次切时,才在切点加 **~40 token** 重叠,避免断在半句。
+4. **上下文头(关键增召回技巧)**:每个 chunk 的**被嵌入文本前缀其层级标题**,如
+   `原地罚篮 › 优先级2 辅助手参与发力\n错误表现:…`。
+   这样即便正文没重复"辅助手",查询"投篮时另一只手怎么放"也能靠标题命中——对这种层级化教研稿,召回质量提升明显。标题同时存 `section_title` 元数据。
+5. 每个 chunk 继承父文档 metadata + `section_title` + `chunk_index`。
+
+参数(进 catalog 记录以便 reindex 复现):
 
 ```
-chunkTargetTokens = 400
-chunkOverlapTokens = 60
-minChunkChars = 120        // 过短的碎块并入相邻,避免噪声块
-keepStructureBoundary = true
+splitStrategy   = STRUCTURE_FIRST         // 有序分隔符递归,非纯 token 切
+chunkMaxTokens  = 450                      // 兜底上限(样本单元均 <450,极少触发)
+chunkOverlap    = 40                       // 仅长块被二次切时生效;结构边界间为 0
+minChunkChars   = 120                      // 过短碎块(如孤立口诀)并入其父块
+prependSectionHeader = true                // 上下文头,增召回
 ```
 
-**为什么是 400/60 而非更大**:嵌入模型对过长文本会"语义平均化"降低区分度;400 token 对"一个纠正练习"这种粒度刚好,召回精准。若知识以长篇原理为主,可上调到 600——这是要随语料调的旋钮,故记进 catalog。
+**为什么不用一刀切的 `TokenTextSplitter`**:纯 token 切会无视"优先级"块和标注段这些**有意义的边界**,可能把一个纠正建议劈成两半、或把两个错误类型塞进一块。你的整理稿是天然按块组织的,顺着它切召回最准。教科书用同一套有序分隔符也能优雅退化到段落切。
+
+> 若将来补入"长篇原理"类语料(单节远超 450),把 `chunkMaxTokens` 上调到 600 即可,无需改策略——这是随语料调的旋钮,记在 catalog 里,reindex 可复现。
 
 ### 8.4 灌库(Embedding + Load)
 
@@ -462,13 +483,14 @@ Spring AI 检索(在 `rag/retrieve`,经 adapter 调):
 SearchRequest.builder()
   .query(q).topK(k)
   .similarityThreshold(0.5)
-  .filterExpression("domain == 'checkpoint' && checkpoint_id == 'elbow_alignment'")
+  .filterExpression("domain == 'shooting'")   // 当前仅按域过滤;checkpoint 对齐后再加 checkpoint_id
   .build()
 ```
 
-- **直通道触发**:问句能直接映射某 checkpoint(如大屏刚提示"肘外翻",学生追问"怎么改")→ 按该 `checkpoint_id` filter 直查,跳过 Multi-Query,省一轮 LLM。checkpoint_id 对不上就退化为无 filter 的语义检索,**不阻塞**。
+- **当前是纯语义检索**:checkpoint 未对齐(§8.1),chunk 无 `checkpoint_id`,所以**不按 checkpoint 过滤**,靠"上下文头 + 语义相似度"召回——对整理稿"优先级块"这种自带主题的结构,纯语义已经够准。
+- **直通道(checkpoint 就位后启用)**:将来问句能直接映射某 checkpoint(如大屏刚提示"肘外翻",学生追问"怎么改")→ 按 `checkpoint_id` filter 直查、跳过 Multi-Query 省一轮 LLM。**现在这条通道休眠**,退化为语义检索,不阻塞。
 - **注入预算(§5.2)**:STUDENT_OPEN 最多注 2 段,STUDENT_STRUCTURED 最多 4 段。
-- **多域扩展**:一期单域 `checkpoint`;`domain` 字段为二期(如"训练计划模板域")留位。
+- **多域扩展**:`domain` 字段现用来分投篮/其他技术;未来"训练计划模板域"等复用同机制。
 
 ### 8.6 RAG 接进 Agent:tool 还是 advisor
 
@@ -476,7 +498,7 @@ SearchRequest.builder()
 
 | 接法 | 机制 | 用在 |
 |---|---|---|
-| **Tool**(`SearchCheckpointKnowledge`) | LLM 在 ReAct 里**自主决定**何时召回 | Skill Coach 主路——能和结论层工具混编(先看数据再查知识,技术 §4.4 双路结合) |
+| **Tool**(`SearchKnowledge`) | LLM 在 ReAct 里**自主决定**何时召回 | Skill Coach 主路——能和结论层工具混编(先看数据再查知识,技术 §4.4 双路结合) |
 | **Advisor**(`QuestionAnswerAdvisor`) | 每轮**自动前置**检索注入 | 纯原理直问的轻量通道 / 二期语义缓存前置 |
 
 **决策**:学生技术答疑走 **Tool** 方式(灵活、可混编、ReAct 友好);advisor 方式留给"明显就是查知识"的简单直问。这样 RAG 是否触发由 LLM 判断,而非每轮硬查(省成本,也避免闲聊时也去检索)。
@@ -555,7 +577,7 @@ SearchRequest.builder()
      取 AgentSpec → 仲裁工具/档位 → 组 ChatClient(system=prompt+skill §6)
      ReAct 循环(§4.2):
        LLM→调 GetProgressTrend →[PreHook 注入 studentId 第二道闸 + 写 TOOL_INVOKE §9]→ 结果
-       LLM→调 SearchCheckpointKnowledge →[RAG 召回 §8.5]→ 结果
+       LLM→调 SearchKnowledge →[RAG 召回 §8.5]→ 结果
        LLM 综合 → (Reflection §4.4 命中则自评1次)
      逐 token → sink.onDelta → SSE delta
  → done:落 ASSISTANT 消息 + 回填 token 预算 + 建议追问
@@ -575,13 +597,15 @@ SearchRequest.builder()
 | Hooks | 一句话 | 强制 PreToolUseHook | §5.3 |
 | audit_log | 实体在,无 Agent 写入 | 统一字段 + REQUIRES_NEW | §9 |
 | `chat_message` | 无元数据列 | 加 `detail` jsonb(routedAgent 等) | §4.1 |
-| RAG 存储 | `CheckpointKnowledge` 实体 @Transient embedding | 改用 PgVectorStore 自管表 + catalog(方案 A,**待确认**) | §8.0 |
-| RAG 导入/切分/灌库 | 无 | seed loader + admin API + 切分/幂等灌库 | §8.1~8.4 |
-| RAG 召回 | 无 | Modular RAG,tool 接入为主 | §8.5/8.6 |
-| Memory | `EpisodicMemory` 实体 | memory_vector_store + 写入策略 | §8.7 |
+| RAG 存储 | `CheckpointKnowledge` 实体 @Transient embedding | ✅ PgVectorStore 自管表 + 轻量 catalog(方案 A) | §8.0 |
+| RAG 导入/切分/灌库 | 无 | seed loader + admin API(异步)+ 结构优先切分/幂等灌库 | §8.1~8.4 |
+| RAG 召回 | 无 | Modular RAG,tool 接入;当前纯语义(checkpoint 未对齐) | §8.5/8.6 |
+| Memory | `EpisodicMemory` 实体 | ✅ 仅 Episodic;Semantic 暂缓 | §8.7 |
 
-**需你拍板的开放问题**(讨论后再写代码):
-1. §8.0 RAG 存储方案 A(VectorStore 自管 + 轻量 catalog,废弃两实体的 chunk 职责)是否采纳?
-2. §8.1 RAG 导入是否放 `/api/admin/**`(ADMIN 角色),还是你另有运维入口?
-3. §8.7 Semantic 画像阶段一是否先不做(只做 Episodic)?
-4. §5.2 GLM 三档型号(flash/air/plus)是否与你的账号可用型号一致?
+**开放问题结论(本轮已定,可据此写代码)**:
+1. ✅ RAG 存储:方案 A(VectorStore 自管 + 轻量 catalog,废弃两实体 chunk 职责)。
+2. ✅ RAG 导入:`/api/admin/knowledge/**`(ADMIN),**异步**灌库。
+3. ✅ Memory:阶段一仅 Episodic,Semantic 画像暂缓。
+4. ✅ 切分:结构优先(优先级块/技术小节为语义单元),`chunkMaxTokens=450` 兜底、结构边界间零重叠、上下文头前缀(§8.3,依据你的教科书 + 整理稿两份样本)。
+5. ✅ 知识暂按普通文本导入,`checkpoint_id` 留空,召回纯语义;将来算法侧就位后 reindex 回填。
+6. ⏸ GLM 三档型号(flash/air/plus)先占位,待你给账号实际可用型号再定(不影响其余设计)。

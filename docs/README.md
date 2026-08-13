@@ -6,7 +6,7 @@
 
 **不在本轮范围**:edge、算法侧、词表权威化、ingest 包位置、MQ 通道——一律当外部已给定输入。
 
-> **状态:设计讨论稿。本轮只更新设计文档,不产出代码。** 讨论通过后再单独生成实现发出。文末列了几个需你拍板的开放问题。
+> **状态:设计讨论稿。本轮只更新设计文档,不产出代码。** 关键设计问题已在讨论中定稿(见文末结论),代码待你确认后单独生成发出。
 
 ---
 
@@ -36,13 +36,14 @@
 
 ---
 
-## 需你拍板的开放问题(讨论后再写代码)
+## 开放问题结论(本轮已定,据此写代码)
 
-1. **RAG 存储**(设计 §8.0):用 Spring AI `PgVectorStore` 自管表存 chunk + 一张轻量 catalog(方案 A),**废弃** `CheckpointKnowledge`/`EpisodicMemory` 两实体的 chunk 存储职责——是否采纳?(不采纳就得回到 JPA + 自定义 vector Type 的双写,与 pgvector 一站式初衷冲突。)
-2. **RAG 导入入口**(API §8):放 `/api/admin/knowledge/**`(ADMIN 角色)+ 启动种子加载,还是你另有运维/教研入口?导入大文档同步返回还是异步 taskId?
-3. **GLM 型号**(设计 §5.2):三档 `glm-4-flash / air / plus` 是否与你账号可用型号一致?若不同请给实际型号。
-4. **Memory 范围**(设计 §8.7):阶段一是否只做 Episodic,Semantic 画像(周批)暂缓?
-5. **切分参数**(设计 §8.3):默认 400 token / 60 overlap 是否合适,取决于你们知识语料是"短纠正练习"为主还是"长篇原理"为主。
+1. ✅ **RAG 存储**(设计 §8.0):Spring AI `PgVectorStore` 自管表存 chunk + 一张轻量 catalog(方案 A);废弃 `CheckpointKnowledge`/`EpisodicMemory` 的 chunk 存储职责。
+2. ✅ **RAG 导入入口**(API §8):`/api/admin/knowledge/**`(ADMIN)+ 启动种子加载,**异步**灌库(返回 taskId 轮询)。
+3. ✅ **Memory 范围**(设计 §8.7):阶段一只做 Episodic,Semantic 画像暂缓。
+4. ✅ **切分**(设计 §8.3,依据你的教科书 + 整理稿两份样本):结构优先——整理稿"优先级 N"块、教科书技术小节各为一个语义单元;`chunkMaxTokens=450` 兜底、结构边界间零重叠、上下文头前缀。
+5. ✅ **知识暂按普通文本**:`checkpoint_id` 留空、召回纯语义;算法侧对齐后 reindex 回填。
+6. ⏸ **GLM 型号**(设计 §5.2):`glm-4-flash/air/plus` 先占位,待你给账号实际可用型号——不影响其余设计。
 
 ---
 

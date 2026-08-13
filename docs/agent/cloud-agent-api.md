@@ -100,17 +100,19 @@ RAG 知识的**导入 / 切分 / 灌库 / 下架**入口。鉴权 `@RequireRole(
 
 | # | 端点 | 行为 |
 |---|---|---|
-| 8.1 | `POST /admin/knowledge/documents` | 上传/登记一篇文档(multipart 或 `{source,domain,checkpointId?,content}`)→ 切分 → 灌库 → `{docId,version,chunks}` |
-| 8.2 | `GET /admin/knowledge/documents` | 列已导入源文档(读 catalog):`{docId,domain,checkpointId?,version,chunks,importedAt}`,分页 |
-| 8.3 | `GET /admin/knowledge/documents/{docId}` | 某源文档详情 + 其 chunk 数/切分参数 |
+| 8.1 | `POST /admin/knowledge/documents` | 上传/登记一篇文档(multipart 或 `{source,domain,content}`)→ **异步**切分灌库 → 返回 `{taskId}` |
+| 8.1a | `GET /admin/knowledge/tasks/{taskId}` | 轮询导入进度:`{status,docId,chunks}`,`status∈PROCESSING/DONE/FAILED` |
+| 8.2 | `GET /admin/knowledge/documents` | 列已导入源文档(读 catalog):`{docId,source,domain,version,chunks,importedAt}`,分页 |
+| 8.3 | `GET /admin/knowledge/documents/{docId}` | 某源文档详情 + chunk 数 + 切分参数 |
 | 8.4 | `DELETE /admin/knowledge/documents/{docId}` | 下架:删该 doc 全部 chunk(按 metadata filter)+ catalog 标 removed。幂等 |
-| 8.5 | `POST /admin/knowledge/documents/{docId}/reindex` | 用当前切分参数/embedding 模型重切重灌(改参数或换模型时) |
-| 8.6 | `POST /admin/knowledge/search`(调试) | `{query,domain?,checkpointId?,topK?}` → 返回召回片段 + 相似度,供教研验证"这条知识能不能被召回" |
+| 8.5 | `POST /admin/knowledge/documents/{docId}/reindex` | 用当前切分参数/embedding 模型重切重灌(改参数、换模型、或将来补 checkpoint 对齐时) |
+| 8.6 | `POST /admin/knowledge/search`(调试) | `{query,domain?,topK?}` → 返回召回片段 + 相似度,供教研验证"这条知识能不能被召回" |
 
 要点:
-- **导入是异步还是同步**:小文档同步返回 `{chunks}`;大批量建议异步(返回 `taskId` 轮询),按你们语料规模定——**待确认**。
+- **异步导入**(已定):大文档 embedding 慢,`POST` 立即返回 `taskId`,后台切分灌库,`8.1a` 轮询。与教师端 Curriculum 复用同一 async_tasks 状态机(设计 §8.1)。
+- **checkpoint 暂不带**:算法侧未对齐,导入一律按普通文本,`checkpointId` 留空,召回纯语义(设计 §8.1/§8.5);将来 reindex 回填。
 - **幂等**:同 `docId` 重导先删旧 chunk 再灌新版(设计 §8.4);未变化(content_hash 同)跳过。
-- **8.6 调试检索**是教研自查工具:导入后能立刻验证召回质量,不必等学生对话踩坑。**强烈建议保留**——RAG 最常见的故障是"知识在库里但召不回",这个端点让它当场暴露。
+- **8.6 调试检索**是教研自查工具:导入后立刻验证召回质量,不必等学生对话踩坑。**强烈建议保留**——RAG 最常见故障是"知识在库里但召不回",这个端点让它当场暴露。
 
 ### §8 错误码
 `40000` 文档格式无法解析 / 参数缺失;`40400` docId 不存在;`50000` 灌库失败(embedding 或写库异常,可按 docId 重导)。

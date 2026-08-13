@@ -71,7 +71,7 @@
 
 > "上课时大屏提示过你**肘外翻**(即时反馈),课后 3D 复核确认你的**肘角偏了约 20°**(结论层评分)。改法是……(RAG 召回的纠正练习)。"
 
-这三句分别来自 `instant_feedback` 工具、`GetActionDetail` 工具、`SearchCheckpointKnowledge`(RAG)。产品价值:比单说"你肘外翻"有说服力得多——有当时的、有事后的、有怎么练的。
+这三句分别来自 `instant_feedback` 工具、`GetActionDetail` 工具、`SearchKnowledge`(RAG)。产品价值:比单说"你肘外翻"有说服力得多——有当时的、有事后的、有怎么练的。
 
 ### 3.4 关键场景的额外把关(Reflection,设计 §4.4)
 
