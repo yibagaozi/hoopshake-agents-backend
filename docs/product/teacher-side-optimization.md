@@ -1,20 +1,22 @@
 # HOOPSHAKE 教师端优化建议
 
-`v1.0 · 2026-08-13 · 针对《教师端业务逻辑 v2》`
+`v1.1 · 2026-08-13 · 针对《教师端业务逻辑 v2》· 范围:cloud 教师前端 + 备课 Agent`
 
-本篇不重写教师端业务逻辑,只列**在对照仓库与其他文档后发现的、值得改的点**。分三类:必改(与代码/其他文档冲突)、体验优化、备课 Agent 接入。凡涉及底层问题的,指回 `../design-audit.md` 对应条目。
+本篇不重写教师端业务逻辑,只列**对照仓库与其他文档后、值得改的点**。分三类:与代码冲突的文档对齐、体验优化、**备课 Agent 接入(本轮重点)**。
+
+范围说明:与本轮 Agent 主题直接相关的是 **§1.2 audit_log 对齐**(Agent 工具审计与建档审计共表)和 **§3 备课 Agent**;§1.1 与 §2 是教师业务文档层面的顺带优化,不影响 Agent。词表相关(建课校验)按当前需求不在本轮范围。
 
 ---
 
 ## 1. 必改:与代码/其他文档的冲突
 
-### 1.1 表名 `enrollment` → `lesson_enrollment`(审计 B4)
+### 1.1 表名 `enrollment` → `lesson_enrollment`(教师文档层面,不影响 Agent)
 
 教师端 §1 数据表、§5.6 的 SQL(`enrollment e join v_student_brief`)、§5.7/§5.8 描述用的都是 `enrollment`;但实体 `LessonEnrollment` 建的表是 **`lesson_enrollment`**(唯一约束 `uk_lesson_student`),Cloud v1.6 §5.7/附录 D 也是 `lesson_enrollment`。
 
 **改**:教师端文档全篇 `enrollment` 表名 → `lesson_enrollment`。§5.6 SQL 相应改。这是纯文档对齐,代码不动。
 
-### 1.2 `audit_log` 字段对齐(审计 B1)
+### 1.2 `audit_log` 字段对齐(审计 A6)—— 与 Agent 工具审计共表
 
 教师端 §1 把 `audit_log` 写成 `operator_account_id / action / target_type / target_id / created_at`,但实体是 `account_id / action / target_student_id / detail(jsonb) / created_at`,且这张表还要同时承载 Agent 工具审计。
 
@@ -25,15 +27,7 @@
 | §5.7 导入建档 | `STUDENT_AUTO_CREATE` | 新建学生 id | `{studentNo, lessonId}` |
 | §6.1 单独建档 | `STUDENT_CREATE` | 新建学生 id | `{studentNo}` |
 
-非学生目标(如未来审计 lesson 操作)放 `detail.targetType/targetId`,**不新增列**。统一设计见 `../agent/agent-system-design.md` §8。
-
-### 1.3 建课词表(审计 A1)——教师端受害最直接
-
-教师端 §5.1 建课校验"`actionTypes` 元素 ∈ 词表 `actions[].id`",但当前 `LessonServiceImpl` 硬编码 `shot/layup/dribble` + `stance/hand/balance`,与文档词表(`jump_shot/layup/drive/free_throw` + `elbow_alignment/…`)不一致。
-
-**后果(教师端可见)**:教师照文档/大屏词表建课直接 `40000 包含非法训练动作`;即便建成,大屏漏渲染 `drive`/`free_throw`。
-
-**改**:等词表权威化(A1)后,§5.1/§5.4 的校验从 `contracts/vocabulary.json` 加载,删硬编码。这是教师端建课能正常工作的前提,优先级高于备课 Agent。
+非学生目标(如未来审计 lesson 操作)放 `detail.targetType/targetId`,**不新增列**。统一设计见 `../agent/agent-system-design.md` §9。
 
 ---
 
@@ -93,15 +87,14 @@ Curriculum 用 **Evaluator** 型 Reflection 把关教案质量(不同于 Skill C
 
 ## 4. 汇总:教师端改动优先级
 
-| 优先级 | 项 | 类型 | 依赖 |
+| 优先级 | 项 | 类型 | 与 Agent 关系 |
 |---|---|---|---|
-| P0 | 1.3 建课词表 | 必改(否则建课就错) | A1 词表权威化 |
-| P0 | 1.1 表名对齐 | 必改(文档) | 无 |
-| P0 | 1.2 audit_log 字段对齐 | 必改(文档+审计 boot) | B1 |
-| P1 | 2.2 强制预检流程 | 体验 | §5.11 已实现 |
+| P0 | 1.2 audit_log 字段对齐 | 必改(文档+审计 boot) | **直接**:工具审计共表(设计 §9) |
+| P1 | 1.1 表名对齐 | 文档对齐 | 无 |
+| P1 | 2.2 强制预检流程 | 体验 | 无 |
 | P1 | 2.1 空档案标记 | 体验 | 无 |
 | P2 | 2.3 实况一致性 | 体验 | 无 |
-| P2 | 2.4 ReID 标记占位 | 体验 | 无 |
-| P3 | 3.x Curriculum 接入 | 新功能 | Harness + async_tasks |
+| P2 | 2.4 ReID 标记占位 | 体验 | 间接(污染画像→污染 Skill Coach 回答) |
+| P3 | 3.x Curriculum 接入 | 新功能 | **核心**:教师端 Agent(设计 §4.3) |
 
-P0 三项是"教师端现在就有毛病"的修正(建课报错、文档对不上代码);P1/P2 是打磨;P3 是二期新功能。**建议 P0 随词表/审计地基一起做,不要等备课 Agent。**
+本轮与 Agent 相关的是 P0(audit_log 共表)与 P3(备课 Agent);其余是教师前端的顺带打磨,可独立推进,不阻塞 Agent。

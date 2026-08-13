@@ -1,69 +1,51 @@
-# HOOPSHAKE 文档索引
+# HOOPSHAKE 云端 Agent 设计文档
 
-`2026-08-13`
+`v1.1 · 2026-08-13`
 
-本目录补全并优化 HOOPSHAKE 云端多 Agent 系统的设计文档。上游文档(Cloud API v1.6、Edge Console API v1.5、教师端业务逻辑 v2、技术参考手册 v1.0)描述了系统骨架与边缘/教师能力,但**多 Agent 系统本身只有概念、无契约与装配设计**,学生端产品逻辑亦缺失。本目录填这两块,并给出一次全量设计审计。
+**范围**:`cloud` 包的多 Agent 系统,以及面向**学生端 / 教师端**两个前端的服务。回答:如何编排 Agent、如何调用 Skill / Tool、如何实现 Harness、如何做日志审计、如何调用 RAG(含**文档导入 / 切分 / 灌库**)。
 
-**本轮不含代码实现**(按需求"暂时不要实现代码");所有内容为设计与文档,实现前请先过审计的落地顺序。
+**不在本轮范围**:edge、算法侧、词表权威化、ingest 包位置、MQ 通道——一律当外部已给定输入。
+
+> **状态:设计讨论稿。本轮只更新设计文档,不产出代码。** 讨论通过后再单独生成实现发出。文末列了几个需你拍板的开放问题。
 
 ---
 
 ## 阅读顺序
 
-| # | 文档 | 是什么 | 先读它当…… |
-|---|---|---|---|
-| 1 | [`design-audit.md`](./design-audit.md) | 仓库 × 四份文档的全量对照:🔴 正确性问题 / 🟡 文档漂移 / 🟢 架构缺口,含落地顺序 §E | 想知道现状有哪些坑、从哪开始动手 |
-| 2 | [`agent/agent-system-design.md`](./agent/agent-system-design.md) | **核心**:Harness 理念与 boot、Agent 路由、RAG 召回、Skill、Tools 调用、日志审计 boot | 要实现 Agent 系统内部 |
-| 3 | [`agent/cloud-agent-api.md`](./agent/cloud-agent-api.md) | 对外契约:学生对话 §3 / 学生数据 §4 / 教师备课 §7(SSE、DTO、错误码) | 要对接前端或写 Controller |
-| 4 | [`product/student-agent-ux.md`](./product/student-agent-ux.md) | 学生端产品使用逻辑:激活闸 → 聊天回路 → 训练数据 → 空态/降级 | 要设计学生端体验 |
-| 5 | [`product/teacher-side-optimization.md`](./product/teacher-side-optimization.md) | 教师端优化:必改冲突项 + 体验优化 + 备课 Agent 接入 | 要改教师端 |
+| # | 文档 | 是什么 |
+|---|---|---|
+| 1 | [`design-audit.md`](./design-audit.md) | cloud Agent 范围的设计审计:缺口/漂移/可优化 + 落地顺序 + 本轮不处理项 |
+| 2 | [`agent/agent-system-design.md`](./agent/agent-system-design.md) | **核心**:Harness 实现、Agent 编排、Skill/Tool 调用、**RAG(调用+导入/切分/灌库)**、日志审计 boot |
+| 3 | [`agent/cloud-agent-api.md`](./agent/cloud-agent-api.md) | 对外契约:学生对话 §3 / 学生数据 §4 / 教师备课 §7 / 知识管理 §8 |
+| 4 | [`product/student-agent-ux.md`](./product/student-agent-ux.md) | 学生端产品使用逻辑 |
+| 5 | [`product/teacher-side-optimization.md`](./product/teacher-side-optimization.md) | 教师端优化 + 备课 Agent 接入 |
 
 ---
 
-## 本轮完成了什么(对照需求)
+## 六个问题各在哪答
 
-| 需求 | 落点 |
+| 你问的 | 落点 |
 |---|---|
-| 补全多 Agent 系统:**Agent 路由** | `agent-system-design.md` §4(阶段一规则路由 + 二期意图分类 + 三个边界) |
-| **RAG 召回** | §6(Modular RAG 编排、直通道、embedding 落点、Episodic 写入策略) |
-| **Skill** | §7.4(Procedural memory / Skill 文件 vs RAG 的区别) |
-| **Tools 调用** | §7.1–7.5(ToolSpec、学生/教师工具集、调用全链路) |
-| **Harness 理念 + boot 详细设计** | §0–3(三条不变量、分层、AgentRuntime/Spec)、§5(PermissionMode 决议、LLM Gateway、Hooks)、§9(boot 装配顺序) |
-| **日志审计 boot 详细设计** | §8(统一 audit_log、触发点、独立事务、多线程咬合) |
-| **审计现有设计的问题与可优化项** | `design-audit.md`(19 条,按严重度) |
-| **完成学生端 Agent 产品使用逻辑** | `product/student-agent-ux.md` |
-| **优化教师端** | `product/teacher-side-optimization.md` |
-| **优化产品和技术设计文档** | 见下"对上游文档的修订清单" |
+| 如何**实现 Harness** | 设计 §1(分层/ArchUnit)、§3(AgentRuntime/Spec/Session、映射 Spring AI)、§10(boot 顺序) |
+| 如何**编排 Agent** | 设计 §4(规则路由、ReAct 循环、Plan-and-Execute、Reflection) |
+| 如何**调用 Skill** | 设计 §6(Procedural memory、classpath 载入、整挂 vs 按需) |
+| 如何**调用 Tool** | 设计 §7(ToolSpec→Spring AI 绑定、学生/教师工具集、Hook 全链路) |
+| 如何**做日志审计** | 设计 §9(统一 audit_log、TOOL_INVOKE/DENY、REQUIRES_NEW、多线程) |
+| 如何**调用 RAG** | 设计 §8.5/8.6(Modular RAG、tool vs advisor) |
+| RAG **如何导入 / 切分 / 灌库** | 设计 §8.1(导入入口)、§8.3(切分 400/60)、§8.4(embedding+批量幂等灌库);§8.0 存储决策;API §8 管理端点 |
 
 ---
 
-## 对上游文档的修订清单(需回写)
+## 需你拍板的开放问题(讨论后再写代码)
 
-以下是本轮发现、应回写进上游文档的修订。每条都在审计里有完整论证。
-
-**技术参考手册 v1.0 → 建议 v1.1**
-- §2.1/§4.3/§5.4:LLM 供应商阶段一收敛为 **GLM 单供应商**,档位映射改 `glm-4-flash/air/plus`;Qwen/异构双评标二期(审计 B2)。
-- §2.1/§5.1:SAA 未定版不阻塞——先按 Spring AI 原生落 `AgentRuntime`,SAA 作为 `adapter/saa` 可换实现(审计 B3)。
-- §5.2:补 **Mode 决议规则**(按角色 + 是否锚定训练决议 STUDENT_OPEN/STRUCTURED),原文只有能力表无决议入口(审计 C2)。
-- §5.3:Hooks 展开为强制 PreToolUseHook(studentId 注入/越权拦截)+ 落库格式(审计 C6)。
-- §6:RAG/Memory 补管线(检索编排、embedding 写入时机、Episodic 写入策略)(审计 C4/C8)。
-- §一/§3.2:RabbitMQ 一期可用 `@Async` + 有界线程池替代,MQ 通道标二期(审计 A4)。
-
-**Cloud API v1.6 → 建议 v1.7**
-- §10.0:`contracts.ingest` 迁移由"已完成"降级为"待办"(实际未迁)(审计 A2)。
-- §10.7:MQ 入库通道标 🚧(pom 无 amqp)(审计 A4)。
-- §10.2:ingest 端点命名统一(`/action-clips` vs `/session-output`)(审计 B5)。
-- 附录 D:确认 `lesson.class_code` 实体列宽收窄到 32(审计 A3)。
-- 新增 §3/§4/§7 章节 = 本目录 `cloud-agent-api.md`。
-
-**教师端业务逻辑 v2 → 建议 v2.1**
-- §1:表名 `enrollment`→`lesson_enrollment`;audit_log 字段对齐实体(审计 B1/B4)。
-- §5.1/§5.4:建课词表改从权威词表加载(审计 A1)。
-- §6.4:重定位为"补齐空档案"的常规动作;名单页标记空 `dominantHand`(Cloud v1.6 §6.1)。
-- 详见 `product/teacher-side-optimization.md`。
+1. **RAG 存储**(设计 §8.0):用 Spring AI `PgVectorStore` 自管表存 chunk + 一张轻量 catalog(方案 A),**废弃** `CheckpointKnowledge`/`EpisodicMemory` 两实体的 chunk 存储职责——是否采纳?(不采纳就得回到 JPA + 自定义 vector Type 的双写,与 pgvector 一站式初衷冲突。)
+2. **RAG 导入入口**(API §8):放 `/api/admin/knowledge/**`(ADMIN 角色)+ 启动种子加载,还是你另有运维/教研入口?导入大文档同步返回还是异步 taskId?
+3. **GLM 型号**(设计 §5.2):三档 `glm-4-flash / air / plus` 是否与你账号可用型号一致?若不同请给实际型号。
+4. **Memory 范围**(设计 §8.7):阶段一是否只做 Episodic,Semantic 画像(周批)暂缓?
+5. **切分参数**(设计 §8.3):默认 400 token / 60 overlap 是否合适,取决于你们知识语料是"短纠正练习"为主还是"长篇原理"为主。
 
 ---
 
-## 实现前必读
+## 落地顺序(实现时)
 
-`design-audit.md` §E 的落地顺序:**先修地基(词表权威化 → contracts.ingest 迁移/列宽命名对齐 → audit_log 统一),再建 Harness,最后接 Agent 与端点。** 在词表权威化(A1)完成前不要接 RAG——否则会调试一个"知识库有内容却召不回"的幽灵 bug,根因就是 checkpoint_id 对不上。
+见 `design-audit.md` §C。要点:**第 4 步(不接 RAG 的 Skill Coach)即可先跑通学生对话**(只用结论层工具);RAG(第 5 步)灌入知识后无缝增强,不阻塞对话上线。训练数据端点(API §4)不依赖 Agent,可最先落地。
