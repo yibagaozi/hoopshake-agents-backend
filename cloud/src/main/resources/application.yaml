@@ -30,4 +30,42 @@ hoopshake:
       allow-credentials: true
       max-age-seconds: 3600
   student:
-    initial-password: No newline at end of file
+    initial-password: ${HOOPSHAKE_STUDENT_INIT_PWD:}
+
+  # ============ 云端 Agent 系统(见 docs/agent/)============
+  # 默认关闭:开发机无 GLM key 也能启动,对话端点降级 50310,训练数据端点不受影响。
+  agent:
+    enabled: ${HOOPSHAKE_AGENT_ENABLED:false}
+    # 型号为占位,以账号实际可用型号为准
+    tier:
+      fast: ${GLM_TIER_FAST:glm-4-flash}
+      standard: ${GLM_TIER_STANDARD:glm-4-air}
+      advanced: ${GLM_TIER_ADVANCED:glm-4-plus}
+    chunk:
+      max-tokens: 450
+      overlap-tokens: 40
+      min-chunk-chars: 120
+    rag:
+      top-k: 4
+      similarity-threshold: 0.5
+      max-injected-open: 2
+      max-injected-structured: 4
+
+# ============ Spring AI(仅在 hoopshake.agent.enabled=true 时需要)============
+# 不配 api-key 时 ZhiPuAI/pgvector 自动配置不生效,应用照常启动(降级)。
+# 启用步骤:设 ZHIPU_API_KEY + HOOPSHAKE_AGENT_ENABLED=true;首次将 initialize-schema 设 true 建向量表。
+#
+# spring:
+#   ai:
+#     zhipuai:
+#       api-key: ${ZHIPU_API_KEY}
+#       embedding:
+#         options:
+#           model: embedding-3
+#           dimensions: 1024
+#     vectorstore:
+#       pgvector:
+#         initialize-schema: ${PGVECTOR_INIT_SCHEMA:false}
+#         dimensions: 1024
+#         distance-type: COSINE_DISTANCE
+No newline at end of file
