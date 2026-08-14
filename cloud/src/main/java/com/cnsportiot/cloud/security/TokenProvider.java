@@ -38,6 +38,7 @@ public class TokenProvider {
                 .claim("username", user.username())
                 .claim("role", user.role().name())
                 .claim("studentId", user.studentId() == null ? null : user.studentId().toString())
+                .claim("status", user.status().name())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(props.getAccessTtl())))
                 .signWith(key)

@@ -11,6 +11,13 @@ spring:
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+  ai:
+    openai:
+      api-key: ${ZHIPUAI_API_KEY}
+      base-url: https://open.bigmodel.cn/api/paas/v4
+      chat:
+        options:
+          model: glm-5.2
 
 hoopshake:
   jwt:
