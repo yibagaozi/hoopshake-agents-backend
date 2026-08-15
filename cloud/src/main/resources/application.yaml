@@ -16,8 +16,14 @@ spring:
       api-key: ${ZHIPUAI_API_KEY}
       base-url: https://open.bigmodel.cn/api/paas/v4
       chat:
-        options:
-          model: glm-5.2
+        model: glm-5.2
+      embedding:
+        model: embedding-3
+        dimensions: 1024
+    vectorstore:
+      pgvector:
+        dimensions: 1024
+        distance-type: COSINE_DISTANCE
 
 hoopshake:
   jwt:
