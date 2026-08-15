@@ -18,4 +18,8 @@ public final class ChatRequests {
     public record ChatAskRequest(
             @NotBlank(message = "提问内容不能为空") @Size(max = 2000) String content,
             UUID trainingSessionId) {}
+
+    /** 3.5 会话改名 */
+    public record RenameChatSessionRequest(
+            @NotBlank(message = "标题不能为空") @Size(max = 64) String title) {}
 }
