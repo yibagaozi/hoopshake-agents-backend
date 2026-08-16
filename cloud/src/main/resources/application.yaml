@@ -44,3 +44,28 @@ hoopshake:
       max-age-seconds: 3600
   student:
     initial-password: No newline at end of file
+  agent:
+    enabled: ${HOOPSHAKE_AGENT_ENABLED:false}    # 关闭时不装配 LLM/向量,对话端点降级 50310
+    max-retries: ${GLM_MAX_RETRIES:2}            # 瞬时错误(超时/5xx/429)同模型重试次数(降级链第①层)
+    tiers:
+      fast:                                      # 意图分类 / RAG query 改写 / 标题 / 建议追问
+        model: ${GLM_TIER_FAST:glm-5.2}
+        reasoning: off
+      standard:                                  # 学生对话主回答(锚定训练)
+        model: ${GLM_TIER_STANDARD:glm-5.2}
+        reasoning: high
+      advanced:                                  # 备课 / Reflection 评估 / 损伤·复杂升档
+        model: ${GLM_TIER_ADVANCED:glm-5.2}
+        reasoning: max
+    fallback:                                    # 主调用故障时的跨模型兜底(降级链第②层)
+      model: ${GLM_FALLBACK_MODEL:glm-5-turbo}
+      reasoning: off
+    chunk:                                       # 切分(8.3)
+      max-tokens: 450
+      overlap-tokens: 40
+      min-chunk-chars: 120
+    rag:                                         # 召回(8.5)
+      top-k: 4
+      similarity-threshold: 0.5
+      max-injected-open: 2
+      max-injected-structured: 4
