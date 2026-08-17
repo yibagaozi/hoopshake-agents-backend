@@ -2,6 +2,7 @@ package com.cnsportiot.cloud.security;
 
 import com.cnsportiot.contracts.error.BusinessException;
 import com.cnsportiot.contracts.error.ErrorCode;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.Authentication;
@@ -24,6 +25,11 @@ public class ActivationCheckInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+
+        if (request.getDispatcherType() != DispatcherType.REQUEST) {
+            return true;
+        }
+
         String path = request.getServletPath();
         if (ALLOWED_PATHS.contains(path) || path.startsWith("/api/ingest/")) {
             return true;

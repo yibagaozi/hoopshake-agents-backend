@@ -4,6 +4,7 @@ import com.cnsportiot.cloud.annotation.RequireAuth;
 import com.cnsportiot.cloud.annotation.RequireRole;
 import com.cnsportiot.contracts.error.BusinessException;
 import com.cnsportiot.contracts.error.ErrorCode;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.Authentication;
@@ -21,6 +22,11 @@ public class RoleInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+
+        if (request.getDispatcherType() != DispatcherType.REQUEST) {
+            return true;
+        }
+
         if (!(handler instanceof HandlerMethod hm)) {
             return true;
         }

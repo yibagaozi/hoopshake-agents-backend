@@ -43,9 +43,9 @@ hoopshake:
       allow-credentials: true
       max-age-seconds: 3600
   student:
-    initial-password: No newline at end of file
+    initial-password: ${INITIAL_PASSWORD:}
   agent:
-    enabled: ${HOOPSHAKE_AGENT_ENABLED:false}    # 关闭时不装配 LLM/向量,对话端点降级 50310
+    enabled: ${HOOPSHAKE_AGENT_ENABLED:true}    # 关闭时不装配 LLM/向量,对话端点降级 50310
     max-retries: ${GLM_MAX_RETRIES:2}            # 瞬时错误(超时/5xx/429)同模型重试次数(降级链第①层)
     tiers:
       fast:                                      # 意图分类 / RAG query 改写 / 标题 / 建议追问
