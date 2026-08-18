@@ -7,10 +7,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 /**
- * 云端 Agent 系统配置(见 docs/agent/agent-system-design.md §5.2)
+ * 云端 Agent 系统配置
  *
  * <p>默认 {@code enabled=false}:缺 GLM key 的开发机照常启动,对话/知识端点降级返回
- * {@code LLM_UNAVAILABLE(50310)},其余端点不受影响(§10 降级启动)。
+ * {@code LLM_UNAVAILABLE(50310)},其余端点不受影响。
  */
 @Getter
 @Setter
@@ -20,13 +20,13 @@ public class AgentProperties {
     /** 总开关。false 时不装配任何 LLM/向量 bean,对话/知识端点降级 */
     private boolean enabled = false;
 
-    /** 瞬时错误(超时/5xx/429)同模型重试次数(降级链第①层,见 §5.2/§5.4) */
+    /** 瞬时错误(超时/5xx/429)同模型重试次数(降级链第1层) */
     private int maxRetries = 2;
 
     @NestedConfigurationProperty
     private Tiers tiers = new Tiers();
 
-    /** 主调用故障后的跨模型兜底(降级链第②层) */
+    /** 主调用故障后的跨模型兜底(降级链第2层) */
     @NestedConfigurationProperty
     private ModelSpec fallback = new ModelSpec("glm-5-turbo", ModelSpec.Reasoning.OFF);
 

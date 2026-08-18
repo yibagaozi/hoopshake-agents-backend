@@ -17,9 +17,11 @@ spring:
       base-url: https://open.bigmodel.cn/api/paas/v4
       chat:
         model: glm-5.2
+        timeout: 5m
       embedding:
         model: embedding-3
         dimensions: 1024
+        timeout: 60s
     vectorstore:
       pgvector:
         dimensions: 1024
