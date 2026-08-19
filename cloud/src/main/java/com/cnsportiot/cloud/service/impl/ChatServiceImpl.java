@@ -12,6 +12,8 @@ import com.cnsportiot.cloud.harness.llm.LlmGateway;
 import com.cnsportiot.cloud.harness.llm.Tier;
 import com.cnsportiot.cloud.harness.rag.RagStore;
 import com.cnsportiot.cloud.harness.rag.Snippet;
+import com.cnsportiot.cloud.harness.tool.port.AgentTool;
+import com.cnsportiot.cloud.harness.tool.port.ToolContext;
 import com.cnsportiot.cloud.repository.ChatMessageRepository;
 import com.cnsportiot.cloud.repository.ChatSessionRepository;
 import com.cnsportiot.cloud.service.ChatService;
@@ -143,13 +145,20 @@ public class ChatServiceImpl implements ChatService {
         emitter.onTimeout(() -> cancelAndFinalize(run, "stop", null));
         emitter.onError(t -> cancelAndFinalize(run, "stop", t));
 
+        List<AgentTool> tools = props.getTools().isExposeInChat() ? toolRegistry.all() : List.of();
+        ToolContext toolContext = new ToolContext(accountId, studentId, sessionId, tier);
+
         LlmGateway.StreamRequest llmReq =
-                new LlmGateway.StreamRequest(system, history, request.content(), tier, null);
+                new LlmGateway.StreamRequest(system, history, request.content(), tier, null, tools, toolContext);
         run.handle = llmGateway.stream(llmReq, new LlmGateway.StreamSink() {
             @Override public void onDelta(String text) {
                 if (run.finished.get()) return;
                 run.buffer.append(text);
                 send(emitter, "delta", new ChatDeltaEvent(text));
+            }
+            @Override public void onToolEvent(String name, String status, String label) {
+                if (run.finished.get()) return;
+                send(emitter, "tool", new ChatToolEvent(name, status, label));
             }
             @Override public void onComplete(String finishReason) {
                 finishRun(run, finishReason, null);
