@@ -1,4 +1,4 @@
-package com.cnsportiot.cloud.harness.tool.port;
+package com.cnsportiot.cloud.harness.tool;
 
 /**
  * 工具的声明式规格。框架无关:{@code adapter/spring} 把它翻译成 Spring AI 的
