@@ -29,6 +29,9 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 
 @ExtendWith(MockitoExtension.class)
+/**
+ * §5.6 ~ §5.11 参课名单与导入预检：覆盖名单列表、批量导入、去重、并发建档和预检分流逻辑。
+ */
 class LessonEnrollmentServiceImplTest {
 
     @Mock
@@ -77,6 +80,7 @@ class LessonEnrollmentServiceImplTest {
         return ref;
     }
 
+    // §5.6 参课名单：只返回当前课程归属教师可见的报名记录。
     @Test
     void list_returnsEnrollmentItems() {
         UUID lessonId = UUID.randomUUID();
@@ -94,6 +98,7 @@ class LessonEnrollmentServiceImplTest {
         assertThat(result.get(0).galleryReady()).isTrue();
     }
 
+    // §5.7 批量导入名单：同学号去重，已存在学生直接报名，未存在学生需先建档再报名，并保留 justCreated 标记。
     @Test
     void importStudents_createsNewStudentAndEnrolls() {
         UUID lessonId = UUID.randomUUID();
@@ -131,6 +136,7 @@ class LessonEnrollmentServiceImplTest {
         then(studentProvisioning).should().provisionByStudentNo("1234567890", "Alice");
     }
 
+    // §5.11 导入预检：只读校验和分桶，不写库，要求 invalid / willCreate / willEnroll / alreadyEnrolled 四类互斥。
     @Test
     void preview_groupsExistingAndInvalidStudents() {
         UUID lessonId = UUID.randomUUID();
