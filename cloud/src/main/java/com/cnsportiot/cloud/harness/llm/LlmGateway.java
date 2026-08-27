@@ -1,7 +1,7 @@
 package com.cnsportiot.cloud.harness.llm;
 
-import com.cnsportiot.cloud.harness.tool.port.AgentTool;
-import com.cnsportiot.cloud.harness.tool.port.ToolContext;
+import com.cnsportiot.cloud.harness.tool.AgentTool;
+import com.cnsportiot.cloud.harness.tool.ToolContext;
 
 import java.util.List;
 

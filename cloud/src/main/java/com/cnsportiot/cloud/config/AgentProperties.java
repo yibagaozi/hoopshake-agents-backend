@@ -36,6 +36,9 @@ public class AgentProperties {
     @NestedConfigurationProperty
     private Rag rag = new Rag();
 
+    @NestedConfigurationProperty
+    private Tools tools = new Tools();
+
     /** 按档位取模型规格。业务/网关用 {@link Tier} 枚举,不直接摸字符串 */
     public ModelSpec specForTier(Tier tier) {
         return switch (tier == null ? Tier.STANDARD : tier) {
@@ -116,5 +119,19 @@ public class AgentProperties {
         private int maxInjectedOpen = 2;
         /** STUDENT_STRUCTURED 最多注入片段数 */
         private int maxInjectedStructured = 4;
+    }
+
+    @Getter
+    @Setter
+    public static class Tools {
+        /** 对话是否向模型开放工具(function-calling)。关掉即退回纯对话 + RAG */
+        private boolean exposeInChat = true;
+        /**
+         * 是否开放调试直调端点 {@code POST /api/student/agent/tools/{name}/invoke}(不经 LLM,确定性验证工具/闸门/审计)
+         * 默认关;测试期打开。生产建议保持关闭
+         */
+        private boolean debugEnabled = false;
+        /** PostToolUseHook 对列表型结果的封顶条数(0 为不限) */
+        private int maxResultItems = 50;
     }
 }
