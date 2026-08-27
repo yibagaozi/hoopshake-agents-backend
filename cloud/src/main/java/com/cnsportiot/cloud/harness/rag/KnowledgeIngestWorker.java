@@ -46,6 +46,9 @@ public class KnowledgeIngestWorker {
             Map<String, Object> base = new HashMap<>();
             base.put("source", doc.getSource());
             base.put("domain", doc.getDomain());
+            if (doc.getActionType() != null) {
+                base.put("action_type", doc.getActionType());
+            }
             if (doc.getCheckpointId() != null) {
                 base.put("checkpoint_id", doc.getCheckpointId());
             }

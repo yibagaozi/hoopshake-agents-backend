@@ -15,6 +15,7 @@ public final class KnowledgeRequests {
             @Size(max = 128) String docId,
             @Size(max = 32) String source,     // textbook / team
             @Size(max = 64) String domain,     // 如 shooting
+            @Size(max = 64) String actionType,
             @NotBlank(message = "文档内容不能为空") String content) {}
 
     /** 8.6 调试检索 */

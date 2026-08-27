@@ -19,6 +19,7 @@ public final class KnowledgeDtos {
             String docId,
             String source,
             String domain,
+            String actionType,
             String checkpointId,
             int version,
             KnowledgeDocStatus status,

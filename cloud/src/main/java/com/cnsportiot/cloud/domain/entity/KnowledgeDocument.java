@@ -38,6 +38,10 @@ public class KnowledgeDocument extends AuditableEntity {
     @Column(name = "domain", length = 64)
     private String domain;
 
+    /** 动作类型(词表 value,如 free_throw);写入 chunk metadata,供按动作精准召回 */
+    @Column(name = "action_type", length = 32)
+    private String actionType;
+
     /** checkpoint 对齐(当前留空,算法侧就位后 reindex 回填) */
     @Column(name = "checkpoint_id", length = 64)
     private String checkpointId;

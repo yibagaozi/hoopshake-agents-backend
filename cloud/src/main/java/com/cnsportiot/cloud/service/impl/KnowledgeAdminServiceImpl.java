@@ -2,6 +2,7 @@ package com.cnsportiot.cloud.service.impl;
 
 import com.cnsportiot.cloud.config.AgentProperties;
 import com.cnsportiot.cloud.domain.entity.KnowledgeDocument;
+import com.cnsportiot.cloud.domain.enums.ActionType;
 import com.cnsportiot.cloud.domain.enums.KnowledgeDocStatus;
 import com.cnsportiot.cloud.dto.request.KnowledgeRequests.DebugSearchRequest;
 import com.cnsportiot.cloud.dto.request.KnowledgeRequests.ImportDocumentRequest;
@@ -50,6 +51,7 @@ public class KnowledgeAdminServiceImpl implements KnowledgeAdminService {
         String docId = (request.docId() == null || request.docId().isBlank())
                 ? "doc-" + hash.substring(0, 16)
                 : request.docId().strip();
+        String actionType = resolveActionType(request.actionType());
 
         KnowledgeDocument doc = docRepo.findByDocId(docId).orElse(null);
 
@@ -65,12 +67,14 @@ public class KnowledgeAdminServiceImpl implements KnowledgeAdminService {
                     .docId(docId)
                     .source(request.source())
                     .domain(request.domain())
+                    .actionType(actionType)
                     .version(1)
                     .status(KnowledgeDocStatus.PROCESSING)
                     .build();
         } else {
             doc.setSource(request.source());
             doc.setDomain(request.domain());
+            doc.setActionType(actionType);
             doc.setVersion(doc.getVersion() + 1);
             doc.setStatus(KnowledgeDocStatus.PROCESSING);
             doc.setRemoved(false);
@@ -143,9 +147,19 @@ public class KnowledgeAdminServiceImpl implements KnowledgeAdminService {
         }
     }
 
+    private String resolveActionType(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return ActionType.UNKNOWN.getValue();
+        }
+        return ActionType.fromValue(raw)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PARAM_INVALID,
+                        "未知动作类型: " + raw + "(允许: " + ActionType.allowedValues() + ")"))
+                .getValue();
+    }
+
     private DocumentResponse toDto(KnowledgeDocument d) {
         return new DocumentResponse(
-                d.getId(), d.getDocId(), d.getSource(), d.getDomain(), d.getCheckpointId(),
+                d.getId(), d.getDocId(), d.getSource(), d.getDomain(), d.getActionType(), d.getCheckpointId(),
                 d.getVersion(), d.getStatus(), d.getChunkCount(), d.getErrorMessage(),
                 d.getCreatedAt(), d.getUpdatedAt());
     }
