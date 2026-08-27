@@ -64,7 +64,7 @@ public class ChatController {
             @PathVariable UUID sessionId,
             @Valid @RequestBody ChatAskRequest request,
             @CurrentUser AuthUser me) {
-        return chatService.ask(sessionId, request, me.studentId());
+        return chatService.ask(sessionId, request, me.studentId(), me.accountId());
     }
 
     /** 3.5 会话改名 */
