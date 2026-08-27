@@ -14,6 +14,7 @@ import com.cnsportiot.cloud.harness.rag.RagStore;
 import com.cnsportiot.cloud.harness.rag.Snippet;
 import com.cnsportiot.cloud.harness.tool.AgentTool;
 import com.cnsportiot.cloud.harness.tool.ToolContext;
+import com.cnsportiot.cloud.harness.tool.ToolRegistry;
 import com.cnsportiot.cloud.repository.ChatMessageRepository;
 import com.cnsportiot.cloud.repository.ChatSessionRepository;
 import com.cnsportiot.cloud.service.ChatService;
@@ -52,6 +53,7 @@ public class ChatServiceImpl implements ChatService {
     private final ChatMessageRepository messageRepo;
     private final LlmGateway llmGateway;
     private final RagStore ragStore;
+    private final ToolRegistry toolRegistry;
     private final AgentProperties props;
 
     private final ScheduledExecutorService heartbeat = Executors.newScheduledThreadPool(2, r -> {
@@ -60,7 +62,7 @@ public class ChatServiceImpl implements ChatService {
         return t;
     });
 
-    /** 每会话最多一个进行中的生成,用于中断/收尾。 */
+    /** 每会话最多一个进行中的生成,用于中断/收尾 */
     private final ConcurrentMap<UUID, ActiveRun> activeRuns = new ConcurrentHashMap<>();
 
     // 会话 CRUD
@@ -102,10 +104,8 @@ public class ChatServiceImpl implements ChatService {
         sessionRepo.save(session);   // 软删,不物理删消息
     }
 
-    // 提问(SSE)
-
     @Override
-    public SseEmitter ask(UUID sessionId, ChatAskRequest request, UUID studentId) {
+    public SseEmitter ask(UUID sessionId, ChatAskRequest request, UUID studentId, UUID accountId) {
         requireOwnedSession(sessionId, studentId);
         if (!llmGateway.isEnabled()) {
             throw new BusinessException(ErrorCode.LLM_UNAVAILABLE);
@@ -128,8 +128,8 @@ public class ChatServiceImpl implements ChatService {
         SseEmitter emitter = new SseEmitter(0L);
         send(emitter, "meta", new ChatMetaEvent(shell.getId(), sessionId));
 
-        // 模式决议(§5.1):锚定训练 → STRUCTURED,否则 OPEN。锚定的存在性校验(读 action_clip)
-        // 属算法侧数据,本里程碑隔离,仅用其存在与否决定档位/注入量。
+        // 模式决议(5.1):锚定训练 → STRUCTURED,否则 OPEN。锚定的存在性校验(读 action_clip)
+        // 属算法侧数据,本里程碑隔离,仅用其存在与否决定档位/注入量
         boolean anchored = request.trainingSessionId() != null;
         Tier tier = anchored ? Tier.STANDARD : Tier.FAST;
         int maxInjected = anchored
@@ -145,6 +145,7 @@ public class ChatServiceImpl implements ChatService {
         emitter.onTimeout(() -> cancelAndFinalize(run, "stop", null));
         emitter.onError(t -> cancelAndFinalize(run, "stop", t));
 
+        // 工具:开关打开则把注册的学生工具交给本轮;权威身份从 token 而来,不由模型选择
         List<AgentTool> tools = props.getTools().isExposeInChat() ? toolRegistry.all() : List.of();
         ToolContext toolContext = new ToolContext(accountId, studentId, sessionId, tier);
 

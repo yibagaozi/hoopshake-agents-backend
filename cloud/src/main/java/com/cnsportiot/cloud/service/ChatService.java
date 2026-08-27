@@ -23,7 +23,7 @@ public interface ChatService {
     void deleteSession(UUID sessionId, UUID studentId);
 
     /** 3.4 提问,SSE 流式(meta/delta/done/error) */
-    SseEmitter ask(UUID sessionId, ChatAskRequest request, UUID studentId);
+    SseEmitter ask(UUID sessionId, ChatAskRequest request, UUID studentId, UUID accountId);
 
     /** 3.6 中断当前生成。幂等 */
     void interrupt(UUID sessionId, UUID studentId);
