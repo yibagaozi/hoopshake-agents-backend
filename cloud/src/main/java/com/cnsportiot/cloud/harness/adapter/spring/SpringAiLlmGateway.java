@@ -15,6 +15,7 @@ import reactor.core.Disposable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /** {@link LlmGateway} 的 Spring AI 实现 */
 @Service
@@ -70,6 +71,30 @@ public class SpringAiLlmGateway implements LlmGateway {
         } catch (RuntimeException e) {
             sink.onError(e);
             return () -> { };
+        }
+    }
+
+    @Override
+    public Optional<String> complete(CompletionRequest request) {
+        try {
+            ModelSpec spec = props.specForTier(request.tier());
+            var ob = OpenAiChatOptions.builder();
+            ob.model(spec.getModel());
+            if (request.maxTokens() != null) {
+                ob.maxTokens(request.maxTokens());
+            }
+            if (spec.reasoningEffort() != null) {
+                ob.reasoningEffort(spec.reasoningEffort());
+            }
+            String content = chatClient.prompt()
+                    .system(request.system() == null ? "" : request.system())
+                    .user(request.user() == null ? "" : request.user())
+                    .options(ob)
+                    .call()
+                    .content();
+            return Optional.ofNullable(content);
+        } catch (RuntimeException e) {
+            return Optional.empty();   // 分类/短补全失败不断链,调用方退回规则
         }
     }
 }

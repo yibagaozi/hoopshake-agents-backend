@@ -12,6 +12,8 @@ import com.cnsportiot.cloud.harness.llm.LlmGateway;
 import com.cnsportiot.cloud.harness.llm.Tier;
 import com.cnsportiot.cloud.harness.rag.RagStore;
 import com.cnsportiot.cloud.harness.rag.Snippet;
+import com.cnsportiot.cloud.harness.router.RouteDecision;
+import com.cnsportiot.cloud.harness.router.RouterService;
 import com.cnsportiot.cloud.harness.tool.AgentTool;
 import com.cnsportiot.cloud.harness.tool.ToolContext;
 import com.cnsportiot.cloud.harness.tool.ToolRegistry;
@@ -30,6 +32,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -38,7 +41,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 学生对话实现
- * SSE 生命周期参考 LessonLiveStreamServiceImpl:注册 completion/timeout/error 防泄漏、15s 心跳。
+ * SSE 生命周期参考 LessonLiveStreamServiceImpl:注册 completion/timeout/error 防泄漏、15s 心跳
  * 流式在 LlmGateway 内部线程回调;中断通过 {@link ActiveRun} 句柄取消并收尾。
  */
 @Slf4j
@@ -54,6 +57,7 @@ public class ChatServiceImpl implements ChatService {
     private final LlmGateway llmGateway;
     private final RagStore ragStore;
     private final ToolRegistry toolRegistry;
+    private final RouterService routerService;
     private final AgentProperties props;
 
     private final ScheduledExecutorService heartbeat = Executors.newScheduledThreadPool(2, r -> {
@@ -104,6 +108,8 @@ public class ChatServiceImpl implements ChatService {
         sessionRepo.save(session);   // 软删,不物理删消息
     }
 
+    // 提问(SSE)
+
     @Override
     public SseEmitter ask(UUID sessionId, ChatAskRequest request, UUID studentId, UUID accountId) {
         requireOwnedSession(sessionId, studentId);
@@ -128,25 +134,32 @@ public class ChatServiceImpl implements ChatService {
         SseEmitter emitter = new SseEmitter(0L);
         send(emitter, "meta", new ChatMetaEvent(shell.getId(), sessionId));
 
-        // 模式决议(5.1):锚定训练 → STRUCTURED,否则 OPEN。锚定的存在性校验(读 action_clip)
-        // 属算法侧数据,本里程碑隔离,仅用其存在与否决定档位/注入量
+        // 路由:规则优先,疑难时 FAST 档意图分类。锚定训练的存在性校验属算法侧,
+        // 本里程碑隔离,仅用其存在与否影响路由(anchored → TRAINING_REVIEW)
         boolean anchored = request.trainingSessionId() != null;
-        Tier tier = anchored ? Tier.STANDARD : Tier.FAST;
-        int maxInjected = anchored
-                ? props.getRag().getMaxInjectedStructured()
-                : props.getRag().getMaxInjectedOpen();
+        RouteDecision decision = routerService.route(request.content(), anchored);
+        Tier tier = decision.tier();
 
-        String system = buildSystemPrompt(retrieve(request.content(), maxInjected));
+        List<Snippet> ragHits = decision.useRag()
+                ? retrieve(request.content(), decision.maxInjected())
+                : List.of();
+        // 调试可视:把本轮注入的召回片段推给前端(生产前端可忽略此事件)
+        send(emitter, "rag", new ChatRagEvent(ragHits.stream()
+                .map(s -> new RagHit(s.docId(), s.sectionTitle(), s.score())).toList()));
+        String system = buildSystemPrompt(ragHits, decision);
 
         ActiveRun run = new ActiveRun(sessionId, shell.getId(), emitter);
+        run.decision = decision;
+        run.ragHits = ragHits;
         activeRuns.put(sessionId, run);
 
         emitter.onCompletion(() -> activeRuns.remove(sessionId, run));
         emitter.onTimeout(() -> cancelAndFinalize(run, "stop", null));
         emitter.onError(t -> cancelAndFinalize(run, "stop", t));
 
-        // 工具:开关打开则把注册的学生工具交给本轮;权威身份从 token 而来,不由模型选择
-        List<AgentTool> tools = props.getTools().isExposeInChat() ? toolRegistry.all() : List.of();
+        // 工具:全局开关 + 本轮路由都允许才开放;权威身份从 token 而来,不由模型选择
+        List<AgentTool> tools = (props.getTools().isExposeInChat() && decision.exposeTools())
+                ? toolRegistry.all() : List.of();
         ToolContext toolContext = new ToolContext(accountId, studentId, sessionId, tier);
 
         LlmGateway.StreamRequest llmReq =
@@ -159,6 +172,9 @@ public class ChatServiceImpl implements ChatService {
             }
             @Override public void onToolEvent(String name, String status, String label) {
                 if (run.finished.get()) return;
+                if (!"running".equals(status)) {   // 只记终态,避免 running+ok 重复
+                    run.toolTrace.add(Map.of("name", name, "status", status));
+                }
                 send(emitter, "tool", new ChatToolEvent(name, status, label));
             }
             @Override public void onComplete(String finishReason) {
@@ -210,6 +226,7 @@ public class ChatServiceImpl implements ChatService {
         try {
             messageRepo.findById(run.assistantMessageId).ifPresent(m -> {
                 m.setContent(run.buffer.toString());
+                m.setDetail(buildDetail(run, reason, error));
                 messageRepo.save(m);
             });
         } catch (RuntimeException e) {
@@ -235,13 +252,24 @@ public class ChatServiceImpl implements ChatService {
             return List.of();
         }
         List<Snippet> hits = ragStore.search(query, props.getRag().getTopK(), props.getRag().getSimilarityThreshold());
-        return hits.size() > maxInjected ? hits.subList(0, maxInjected) : hits;
+        List<Snippet> injected = hits.size() > maxInjected ? hits.subList(0, maxInjected) : hits;
+        log.info("RAG 召回 query=\"{}\" 命中{}条,注入{}条: {}", query, hits.size(), injected.size(),
+                injected.stream().map(s -> s.docId() + "#" + s.sectionTitle()
+                        + "(" + String.format("%.2f", s.score() == null ? 0.0 : s.score()) + ")").toList());
+        return injected;
     }
 
-    private String buildSystemPrompt(List<Snippet> snippets) {
+    private String buildSystemPrompt(List<Snippet> snippets, RouteDecision decision) {
         StringBuilder sb = new StringBuilder();
         sb.append("你是 HOOPSHAKE 篮球训练助手(Skill Coach)。只做动作要点讲解与训练原理问答,")
-          .append("不给学生打分、不排名;谈进步只跟他自己比。回答简洁、可执行、面向青少年球员。\n");
+          .append("谈进步只跟他自己比。回答简洁、可执行、面向青少年球员。\n");
+        // 意图相关口吻
+        switch (decision.intent()) {
+            case OUT_OF_SCOPE -> sb.append("如果问题与篮球训练无关,礼貌说明你只能帮训练相关的问题,并邀请他问训练。\n");
+            case SMALLTALK -> sb.append("这是一句寒暄,简短友好回应即可,顺势引导到训练话题。\n");
+            case TRAINING_REVIEW -> sb.append("学生想复盘训练,优先用工具查他自己的训练数据后再点评。\n");
+            default -> { }
+        }
         if (snippets.isEmpty()) {
             sb.append("\n(本次未检索到专门参考资料,请基于篮球常识谨慎回答,不要编造具体测量数据。)\n");
         } else {
@@ -252,6 +280,29 @@ public class ChatServiceImpl implements ChatService {
             }
         }
         return sb.toString();
+    }
+
+    /** 组装 chat_message.detail(路由/命中 RAG/工具轨迹/收尾原因),供复盘 */
+    private Map<String, Object> buildDetail(ActiveRun run, String reason, Throwable error) {
+        Map<String, Object> detail = new LinkedHashMap<>();
+        if (run.decision != null) {
+            detail.put("route", run.decision.toDetail());
+        }
+        List<Map<String, Object>> rag = new ArrayList<>();
+        for (Snippet s : run.ragHits) {
+            Map<String, Object> h = new LinkedHashMap<>();
+            h.put("docId", s.docId());
+            h.put("section", s.sectionTitle());
+            h.put("score", s.score());
+            rag.add(h);
+        }
+        detail.put("rag", rag);
+        detail.put("tools", new ArrayList<>(run.toolTrace));
+        detail.put("finishReason", reason);
+        if (error != null) {
+            detail.put("error", true);
+        }
+        return detail;
     }
 
     private List<LlmGateway.Turn> loadHistory(UUID sessionId) {
@@ -322,8 +373,11 @@ public class ChatServiceImpl implements ChatService {
         final SseEmitter emitter;
         final StringBuilder buffer = new StringBuilder();
         final AtomicBoolean finished = new AtomicBoolean(false);
+        final List<Map<String, Object>> toolTrace = new CopyOnWriteArrayList<>();
         volatile LlmGateway.StreamHandle handle;
         volatile ScheduledFuture<?> heartbeat;
+        volatile RouteDecision decision;
+        volatile List<Snippet> ragHits = List.of();
 
         ActiveRun(UUID sessionId, UUID assistantMessageId, SseEmitter emitter) {
             this.sessionId = sessionId;
