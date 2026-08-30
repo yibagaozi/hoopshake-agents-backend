@@ -13,6 +13,10 @@ public record AuthUser(
         UUID studentId,
         AccountStatus status) {
 
+    public boolean isAdmin() {
+        return role == Role.ADMIN;
+    }
+
     public boolean isStudent() {
         return role == Role.STUDENT;
     }

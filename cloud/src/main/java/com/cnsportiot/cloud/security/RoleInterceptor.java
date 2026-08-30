@@ -47,7 +47,7 @@ public class RoleInterceptor implements HandlerInterceptor {
         if (user == null) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
-        if (requireRole != null && !user.hasRole(requireRole.value())) {
+        if (requireRole != null && !user.isAdmin() && !user.hasRole(requireRole.value())) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
         return true;

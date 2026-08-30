@@ -109,9 +109,7 @@ public class AuthServiceImpl implements AuthService {
         Account account = accountRepository.findById(current.accountId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
 
-        Student student = account.getRole() == Role.STUDENT
-                ? studentRepository.findByAccountId(account.getId()).orElse(null)
-                : null;
+        Student student = studentRepository.findByAccountId(account.getId()).orElse(null);
 
         return new UserProfileResponse(
                 account.getId(),
@@ -217,9 +215,7 @@ public class AuthServiceImpl implements AuthService {
 
     /** 签发双 token,并把新 refresh 的 jti 记入存储 */
     private TokenResponse issueTokens(Account account) {
-        Student student = account.getRole() == Role.STUDENT
-                ? studentRepository.findByAccountId(account.getId()).orElse(null)
-                : null;
+        Student student = studentRepository.findByAccountId(account.getId()).orElse(null);
 
         UUID studentId = student == null ? null : student.getId();
         AuthUser authUser = new AuthUser(account.getId(), account.getUsername(), account.getRole(), studentId, account.getStatus());
