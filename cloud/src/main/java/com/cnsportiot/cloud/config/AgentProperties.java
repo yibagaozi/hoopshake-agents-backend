@@ -39,6 +39,9 @@ public class AgentProperties {
     @NestedConfigurationProperty
     private Tools tools = new Tools();
 
+    @NestedConfigurationProperty
+    private Router router = new Router();
+
     /** 按档位取模型规格。业务/网关用 {@link Tier} 枚举,不直接摸字符串 */
     public ModelSpec specForTier(Tier tier) {
         return switch (tier == null ? Tier.STANDARD : tier) {
@@ -133,5 +136,14 @@ public class AgentProperties {
         private boolean debugEnabled = false;
         /** PostToolUseHook 对列表型结果的封顶条数(0 为不限) */
         private int maxResultItems = 50;
+    }
+
+    // 路由
+
+    @Getter
+    @Setter
+    public static class Router {
+        /** 规则拿不准时,是否用 FAST 档做一次意图分类(关掉则直接走 GENERAL 兜底) */
+        private boolean llmClassify = true;
     }
 }

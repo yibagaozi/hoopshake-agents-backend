@@ -4,6 +4,7 @@ import com.cnsportiot.cloud.harness.tool.AgentTool;
 import com.cnsportiot.cloud.harness.tool.ToolContext;
 
 import java.util.List;
+import java.util.Optional;
 
 /** LLM 调用统一收口 */
 public interface LlmGateway {
@@ -13,6 +14,15 @@ public interface LlmGateway {
 
     /** 流式生成。回调发生在网关内部线程;返回句柄用于中断 */
     StreamHandle stream(StreamRequest request, StreamSink sink);
+
+    /**
+     * 一次性(非流式,阻塞)补全,用于意图分类 / query 改写 / 短建议等 FAST 档场景
+     * 不可用或失败时返回 {@link Optional#empty()},调用方据此退回规则/兜底,不抛断链
+     */
+    Optional<String> complete(CompletionRequest request);
+
+    /** 一次性补全的输入 */
+    record CompletionRequest(String system, String user, Tier tier, Integer maxTokens) {}
 
     /**
      * 一次对话轮次的输入。history 为最近若干轮上下文
