@@ -1,0 +1,12 @@
+**/target/
+.git/
+.github/
+docs/
+deploy/
+**/*.md
+*.log
+.idea/
+*.iml
+.vscode/
+**/*.env
+**/application-local.*

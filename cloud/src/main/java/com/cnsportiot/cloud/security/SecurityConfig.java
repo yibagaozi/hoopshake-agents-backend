@@ -1,6 +1,8 @@
 package com.cnsportiot.cloud.security;
 
 import com.cnsportiot.cloud.config.RegisterProperties;
+import com.cnsportiot.cloud.config.StudentProperties;
+import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,7 +15,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
-@EnableConfigurationProperties({JwtProperties.class, RegisterProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, RegisterProperties.class, StudentProperties.class})
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
@@ -40,10 +42,12 @@ public class SecurityConfig {
             .formLogin(AbstractHttpConfigurer::disable)
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                 .requestMatchers(
                     "/api/auth/login",
                     "/api/auth/refresh",
-                    "/api/auth/register").permitAll()
+                    "/api/auth/register",
+                    "/api/auth/activate").permitAll()
                 .requestMatchers("/api/parent/**").permitAll()   // 由 Controller 统一返回 501
                 .requestMatchers("/actuator/health", "/error").permitAll()
                 .requestMatchers("/api/ingest/**").permitAll()   // 由 ServiceTokenFilter 校验

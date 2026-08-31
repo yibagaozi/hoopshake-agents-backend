@@ -1,0 +1,44 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 'Checkout GitHub Action'
+        uses: actions/checkout@v4
+
+      - name: 'Login to Aliyun Container Registry'
+        uses: docker/login-action@v3
+        with:
+          registry: registry.cn-hangzhou.aliyuncs.com
+          username: ${{ secrets.ALIYUN_USERNAME }}
+          password: ${{ secrets.ALIYUN_PASSWORD }}
+
+      - name: 'Build & Push'
+        env:
+          REGISTRY: registry.cn-hangzhou.aliyuncs.com
+          IMAGE_NAME: hoopshake/hoopshake-agent-backend-cloud
+        run: |
+          branch_name=${GITHUB_REF##*/}
+          echo "当前分支: $branch_name"
+
+          if [ "$branch_name" = "master" ]; then
+            tag="latest"
+          elif [ "$branch_name" = "develop" ]; then
+            tag="develop"
+          else
+            echo "非目标分支，退出构建"
+            exit 0
+          fi
+
+          echo "使用 tag: $tag"
+          docker build . --tag ${REGISTRY}/${IMAGE_NAME}:$tag
+          docker push ${REGISTRY}/${IMAGE_NAME}:$tag

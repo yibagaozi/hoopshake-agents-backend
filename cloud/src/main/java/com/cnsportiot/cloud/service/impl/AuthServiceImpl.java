@@ -11,6 +11,7 @@ import com.cnsportiot.cloud.repository.StudentRepository;
 import com.cnsportiot.cloud.dto.response.AuthDtos.TokenResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.UserProfileResponse;
 import com.cnsportiot.cloud.dto.request.AuthRequests.RegisterRequest;
+import com.cnsportiot.cloud.dto.request.AuthRequests.ActivateRequest;
 import com.cnsportiot.cloud.dto.response.AuthDtos.RegisterResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.UserSummary;
 import com.cnsportiot.cloud.dto.request.AuthRequests.LoginRequest;
@@ -108,9 +109,7 @@ public class AuthServiceImpl implements AuthService {
         Account account = accountRepository.findById(current.accountId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
 
-        Student student = account.getRole() == Role.STUDENT
-                ? studentRepository.findByAccountId(account.getId()).orElse(null)
-                : null;
+        Student student = studentRepository.findByAccountId(account.getId()).orElse(null);
 
         return new UserProfileResponse(
                 account.getId(),
@@ -173,6 +172,31 @@ public class AuthServiceImpl implements AuthService {
                 account.getRole(), account.getStatus(), account.getStaffNo());
     }
 
+    @Override
+    @Transactional
+    public TokenResponse activate(ActivateRequest request, AuthUser current) {
+        Account account = accountRepository.findById(current.accountId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+
+        if (account.getStatus() != AccountStatus.PENDING_ACTIVATION) {
+            throw BusinessException.stateConflict("账号已激活,无需重复操作");
+        }
+
+        if (request.phone() != null && !request.phone().isBlank()) {
+            if (accountRepository.existsByPhone(request.phone())
+                    && !account.getId().equals(accountRepository.findByPhone(request.phone()).map(Account::getId).orElse(null))) {
+                throw new BusinessException(ErrorCode.DUPLICATE_IDENTIFIER, "手机号已被使用");
+            }
+            account.setPhone(request.phone());
+        }
+
+        account.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        account.setStatus(AccountStatus.ACTIVE);
+        accountRepository.save(account);
+
+        return issueTokens(account);
+    }
+
     private static String emptyToNull(String s) {
         return (s == null || s.isBlank()) ? null : s;
     }
@@ -191,12 +215,10 @@ public class AuthServiceImpl implements AuthService {
 
     /** 签发双 token,并把新 refresh 的 jti 记入存储 */
     private TokenResponse issueTokens(Account account) {
-        Student student = account.getRole() == Role.STUDENT
-                ? studentRepository.findByAccountId(account.getId()).orElse(null)
-                : null;
+        Student student = studentRepository.findByAccountId(account.getId()).orElse(null);
 
         UUID studentId = student == null ? null : student.getId();
-        AuthUser authUser = new AuthUser(account.getId(), account.getUsername(), account.getRole(), studentId);
+        AuthUser authUser = new AuthUser(account.getId(), account.getUsername(), account.getRole(), studentId, account.getStatus());
 
         String accessToken = tokenProvider.issueAccessToken(authUser);
 

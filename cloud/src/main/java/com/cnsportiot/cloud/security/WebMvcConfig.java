@@ -13,11 +13,14 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     private final CurrentUserArgumentResolver currentUserArgumentResolver;
     private final RoleInterceptor roleInterceptor;
+    private final ActivationCheckInterceptor activationCheckInterceptor;
 
     public WebMvcConfig(CurrentUserArgumentResolver currentUserArgumentResolver,
-                        RoleInterceptor roleInterceptor) {
+                        RoleInterceptor roleInterceptor,
+                        ActivationCheckInterceptor activationCheckInterceptor) {
         this.currentUserArgumentResolver = currentUserArgumentResolver;
         this.roleInterceptor = roleInterceptor;
+        this.activationCheckInterceptor = activationCheckInterceptor;
     }
 
     @Override
@@ -28,5 +31,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(roleInterceptor).addPathPatterns("/api/**");
+        registry.addInterceptor(activationCheckInterceptor).addPathPatterns("/api/**");
     }
 }

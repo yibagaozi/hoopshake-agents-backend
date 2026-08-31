@@ -1,5 +1,6 @@
 package com.cnsportiot.cloud.security;
 
+import com.cnsportiot.cloud.domain.enums.AccountStatus;
 import com.cnsportiot.cloud.domain.enums.Role;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -37,6 +38,7 @@ public class TokenProvider {
                 .claim("username", user.username())
                 .claim("role", user.role().name())
                 .claim("studentId", user.studentId() == null ? null : user.studentId().toString())
+                .claim("status", user.status().name())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(props.getAccessTtl())))
                 .signWith(key)
@@ -71,11 +73,14 @@ public class TokenProvider {
             throw new io.jsonwebtoken.JwtException("非 access token");
         }
         String studentId = c.get("studentId", String.class);
+        String statusStr = c.get("status", String.class);
+        AccountStatus status = statusStr != null ? AccountStatus.valueOf(statusStr) : AccountStatus.ACTIVE;
         return new AuthUser(
                 UUID.fromString(c.getSubject()),
                 c.get("username", String.class),
                 Role.valueOf(c.get("role", String.class)),
-                studentId == null ? null : UUID.fromString(studentId));
+                studentId == null ? null : UUID.fromString(studentId),
+                status);
     }
 
     /** 解析 refresh token,返回其 Claims */

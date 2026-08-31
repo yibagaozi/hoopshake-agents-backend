@@ -1,3 +1,85 @@
+server:
+  address: 0.0.0.0
+  port: 8080
+
 spring:
   application:
     name: edge
+  jackson:
+    default-property-inclusion: non_null
+
+hoopshake:
+  edge:
+    edge-id: edge-01
+
+    data-root: C:/hoopshake/data
+
+    ffmpeg-path: C:/Program Files/ffmpeg-7.1.1/bin/ffmpeg.exe
+
+    stale-frame-millis: 3000
+
+    cameras:
+      - cam-id: cam_01
+        device-name: "HDPro 1"
+        role: 左侧
+        anchor: true
+      - cam-id: cam_02
+        device-name: "HDPro 2"
+        role: 右侧
+        anchor: false
+      - cam-id: cam_03
+        device-name: "HDPro 3"
+        role: 底线 · 主
+        anchor: false
+      - cam-id: cam_04
+        device-name: "HDPro 4"
+        role: 篮板
+        anchor: false
+
+    mediamtx:
+      executable: C:/Program Files/mediamtx/mediamtx.exe
+      config: C:/Program Files/mediamtx/mediamtx.yml
+      rtsp-base: rtsp://127.0.0.1:8554
+      api-base: http://127.0.0.1:9997
+      ready-timeout-millis: 10000
+
+    encode:
+      video-size: 1920x1080
+      framerate: 60
+      rtbufsize: 512M
+      codec: h264_nvenc
+      preset: p4
+      cq: 23
+      bitrate: 8M
+      maxrate: 12M
+      gop: 60
+      pix-fmt: yuv420p
+
+    cloud:
+      base-url: https://api.hoopshake.example
+      service-token: ${EDGE_SERVICE_TOKEN}
+      connect-timeout-millis: 3000
+      read-timeout-millis: 10000
+
+    mock:
+      cv-enabled: false
+
+    cv:
+      enabled: true
+      auto-start: true
+      command:
+        - python
+        - C:/hoopshake/tools/mock_cv.py
+        - --pose-hz
+        - "10"
+        - --persons
+        - "3"
+      work-dir: C:/hoopshake/tools
+      env:
+        PYTHONUNBUFFERED: "1"
+
+logging:
+  level:
+    com.cnsportiot.edge: INFO
+  file:
+    name: C:/hoopshake/logs/edge-console.log

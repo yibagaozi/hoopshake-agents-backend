@@ -45,6 +45,12 @@ public class Lesson extends AuditableEntity {
     @Column(name = "scheduled_at")
     private OffsetDateTime scheduledAt;
 
+    @Column(name = "class_code", length = 64)
+    private String classCode;
+
+    @Column(name = "duration_minutes")
+    private Integer durationMinutes;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     @Builder.Default

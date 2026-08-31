@@ -38,7 +38,7 @@ public class Account extends AuditableEntity {
     private String displayName;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 16)
+    @Column(nullable = false, length = 32)
     @Builder.Default
     private AccountStatus status = AccountStatus.ACTIVE;
 

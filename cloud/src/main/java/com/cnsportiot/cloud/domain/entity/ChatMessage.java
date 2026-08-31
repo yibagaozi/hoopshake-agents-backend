@@ -4,7 +4,10 @@ import com.cnsportiot.cloud.domain.common.BaseEntity;
 import com.cnsportiot.cloud.domain.enums.MessageRole;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
+import java.util.Map;
 import java.util.UUID;
 
 /** 对话消息 */
@@ -31,4 +34,9 @@ public class ChatMessage extends BaseEntity {
 
     @Column(name = "token_usage")
     private Integer tokenUsage;
+
+    /** 复盘用元数据(路由决策 / 命中的 RAG 片段 / 工具轨迹 / 收尾原因) */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private Map<String, Object> detail;
 }

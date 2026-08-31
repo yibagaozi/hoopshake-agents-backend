@@ -36,6 +36,11 @@ public final class ChatDtos {
     /** event: tool(工具调用轨迹,label 为可直接展示的中文短句) */
     public record ChatToolEvent(String name, String status, String label) {}
 
+    /** event: rag(本轮召回并注入的知识片段,调试可视;生产前端可忽略) */
+    public record ChatRagEvent(List<RagHit> hits) {}
+
+    public record RagHit(String docId, String section, Double score) {}
+
     /** event: done(suggestions 为可选建议追问) */
     public record ChatDoneEvent(
             UUID messageId,
