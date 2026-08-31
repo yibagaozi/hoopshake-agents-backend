@@ -18,13 +18,13 @@ jobs:
       - name: 'Login to Aliyun Container Registry'
         uses: docker/login-action@v3
         with:
-          registry: registry.cn-hangzhou.aliyuncs.com
+          registry: crpi-fgo4g7v7lir6fd0o.cn-beijing.personal.cr.aliyuncs.com
           username: ${{ secrets.ALIYUN_USERNAME }}
           password: ${{ secrets.ALIYUN_PASSWORD }}
 
       - name: 'Build & Push'
         env:
-          REGISTRY: registry.cn-hangzhou.aliyuncs.com
+          REGISTRY: crpi-fgo4g7v7lir6fd0o.cn-beijing.personal.cr.aliyuncs.com
           IMAGE_NAME: hoopshake/hoopshake-agent-backend-cloud
         run: |
           branch_name=${GITHUB_REF##*/}
