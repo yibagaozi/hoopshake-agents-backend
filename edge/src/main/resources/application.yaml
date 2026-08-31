@@ -57,7 +57,7 @@ hoopshake:
 
     cloud:
       base-url: https://api.hoopshake.example
-      service-token: ${EDGE_SERVICE_TOKEN:default-token}
+      service-token: ${EDGE_SERVICE_TOKEN}
       connect-timeout-millis: 3000
       read-timeout-millis: 10000
 
