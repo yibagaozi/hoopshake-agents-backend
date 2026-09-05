@@ -42,6 +42,12 @@ public class AgentProperties {
     @NestedConfigurationProperty
     private Router router = new Router();
 
+    @NestedConfigurationProperty
+    private Budget budget = new Budget();
+
+    @NestedConfigurationProperty
+    private Assist assist = new Assist();
+
     /** 按档位取模型规格。业务/网关用 {@link Tier} 枚举,不直接摸字符串 */
     public ModelSpec specForTier(Tier tier) {
         return switch (tier == null ? Tier.STANDARD : tier) {
@@ -139,11 +145,35 @@ public class AgentProperties {
     }
 
     // 路由
-
     @Getter
     @Setter
     public static class Router {
         /** 规则拿不准时,是否用 FAST 档做一次意图分类(关掉则直接走 GENERAL 兜底) */
         private boolean llmClassify = true;
+    }
+
+    // Token 预算
+
+    @Getter
+    @Setter
+    public static class Budget {
+        /** 上下文预算(token 估算口径,近似);按账号实际模型上下文窗口调 */
+        private int contextTokens = 128_000;
+        /** 每轮为模型输出预留的 token(裁历史时扣除) */
+        private int reserveOutputTokens = 2_048;
+    }
+
+    /**
+     * 「请求教师协助」触发判定(混合:硬门槛 + LLM 确认)。
+     * 达到 {@code minRounds} 轮学生提问后,才用 FAST 档 LLM 判定疑问是否仍未解决;
+     * 判定为未解决时,SSE 推 {@code assist} 事件让前端展示协助按钮
+     */
+    @Getter
+    @Setter
+    public static class Assist {
+        /** 是否启用协助触发判定。 */
+        private boolean enabled = true;
+        /** 触发 LLM 判定的最小学生提问轮次(硬门槛)。 */
+        private int minRounds = 3;
     }
 }

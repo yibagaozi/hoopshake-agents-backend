@@ -47,5 +47,11 @@ public final class ChatDtos {
             String finishReason,  // stop / interrupted / length
             Integer tokenUsage,
             List<String> suggestions) {}
+
+    /**
+     * event: assist(多轮未解决, 建议请求教师协助)
+     * 前端据此展示协助按钮
+     */
+    public record ChatAssistEvent(boolean show, String question, String reason) {}
 }
 
