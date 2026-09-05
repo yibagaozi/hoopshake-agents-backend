@@ -73,6 +73,7 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public ChatSessionResponse createSession(CreateChatSessionRequest request, UUID studentId) {
+        requireStudentIdentity(studentId);
         ChatSession session = ChatSession.create(studentId, null,
                 request.title() == null || request.title().isBlank() ? null : request.title().strip());
         session = sessionRepo.save(session);
@@ -81,6 +82,7 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public PageResponse<ChatSessionResponse> listSessions(UUID studentId, int page, int size) {
+        requireStudentIdentity(studentId);
         var pageable = PageResponses.toPageable(page, size,
                 org.springframework.data.domain.Sort.by("updatedAt").descending());
         return PageResponses.from(sessionRepo.findByStudentIdAndDeletedFalse(studentId, pageable), this::toSessionDto);
@@ -151,6 +153,7 @@ public class ChatServiceImpl implements ChatService {
         ActiveRun run = new ActiveRun(sessionId, shell.getId(), emitter);
         run.decision = decision;
         run.ragHits = ragHits;
+        run.userQuestion = request.content();
         activeRuns.put(sessionId, run);
 
         emitter.onCompletion(() -> activeRuns.remove(sessionId, run));
@@ -243,6 +246,49 @@ public class ChatServiceImpl implements ChatService {
                     new ChatDoneEvent(run.assistantMessageId, reason, null, List.of()));
         }
         try { run.emitter.complete(); } catch (RuntimeException ignore) { }
+    }
+
+    /**
+     * 「请求教师协助」触发判定(混合:硬门槛轮次 + FAST 档 LLM 确认)。
+     * 达到 {@code assist.minRounds} 轮学生提问后,用 FAST 档判定「疑惑是否仍未解决」;
+     * 判定为未解决则 SSE 推 {@code assist} 事件。best-effort:任何异常都不影响主流程
+     */
+    private void maybeSuggestTeacherAssist(ActiveRun run) {
+        try {
+            var cfg = props.getAssist();
+            if (!cfg.isEnabled() || !llmGateway.isEnabled()) {
+                return;
+            }
+            long userTurns = messageRepo.countByChatSessionIdAndRole(run.sessionId, MessageRole.USER);
+            if (userTurns < cfg.getMinRounds()) {
+                return;
+            }
+            String question = run.userQuestion == null ? "" : run.userQuestion.strip();
+            String answer = run.buffer.toString().strip();
+            if (question.isBlank()) {
+                return;
+            }
+            String system = "你是对话质量判定器。学生已就同一主题连续多轮提问。"
+                    + "结合最新问题与助教回答,判断学生的疑惑是否仍未得到解决、需要真人教师介入。"
+                    + "只输出一个词:YES(仍未解决,建议找教师)或 NO(已解决或无需教师)。";
+            String user = "【学生最新问题】\n" + truncate(question, 500)
+                    + "\n\n【助教回答】\n" + truncate(answer, 800)
+                    + "\n\n仍未解决吗?只回 YES 或 NO。";
+            boolean unresolved = llmGateway
+                    .complete(new LlmGateway.CompletionRequest(system, user, Tier.FAST, 8))
+                    .map(s -> s.toUpperCase().contains("YES"))
+                    .orElse(false);
+            if (unresolved) {
+                send(run.emitter, "assist",
+                        new ChatAssistEvent(true, question, "多轮未解决,建议请求教师协助"));
+            }
+        } catch (RuntimeException e) {
+            log.debug("协助触发判定失败(忽略) sessionId={}: {}", run.sessionId, e.toString());
+        }
+    }
+
+    private static String truncate(String s, int max) {
+        return s.length() <= max ? s : s.substring(0, max);
     }
 
     // 辅助
@@ -345,6 +391,14 @@ public class ChatServiceImpl implements ChatService {
         return session;
     }
 
+    /** 学生对话端点要求调用者具备 studentId 身份 */
+    private void requireStudentIdentity(UUID studentId) {
+        if (studentId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "当前账号无 studentId(非学生身份),无法使用学生对话端点。请使用学生账号登录,或为该账号绑定 Student 后重新登录。");
+        }
+    }
+
     private ChatSessionResponse toSessionDto(ChatSession s) {
         return new ChatSessionResponse(s.getId(), s.getTitle(), s.getCreatedAt(), s.getUpdatedAt());
     }
@@ -378,6 +432,7 @@ public class ChatServiceImpl implements ChatService {
         volatile ScheduledFuture<?> heartbeat;
         volatile RouteDecision decision;
         volatile List<Snippet> ragHits = List.of();
+        volatile String userQuestion;
 
         ActiveRun(UUID sessionId, UUID assistantMessageId, SseEmitter emitter) {
             this.sessionId = sessionId;
