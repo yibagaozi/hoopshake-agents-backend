@@ -19,6 +19,14 @@ public interface AgentTool {
     ToolSpec spec();
 
     /**
+     * 工具作用域,决定它对哪类对话开放、走哪一道闸(默认学生自绑定)
+     * 教师分析工具覆写为 {@link ScopeKind#TEACHER}。
+     */
+    default ScopeKind scope() {
+        return ScopeKind.STUDENT;
+    }
+
+    /**
      * 执行取数。此处已在 Hook 链之内:{@code args} 是经 PreToolUseHook 清洗/校验后的入参,
      * 身份以 {@code ctx.studentId()} 为准。抛 {@code RuntimeException} 将被 {@link ToolRunner} 记为工具错误。
      */

@@ -40,5 +40,10 @@ public class ToolRegistry {
     public List<AgentTool> all() {
         return List.copyOf(byName.values());
     }
+
+    /** 按作用域过滤 */
+    public List<AgentTool> byScope(ScopeKind scope) {
+        return byName.values().stream().filter(t -> t.scope() == scope).toList();
+    }
 }
 

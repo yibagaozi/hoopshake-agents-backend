@@ -15,10 +15,20 @@ import java.util.UUID;
  * @param sessionId 触发调用的对话会话(可空,如调试端点直调)
  * @param tier      本次调用的档位(供工具决定拉取粒度,可空)
  */
-public record ToolContext(UUID accountId, UUID studentId, UUID sessionId, Tier tier) {
+public record ToolContext(UUID accountId, UUID studentId, UUID sessionId, Tier tier, ScopeKind kind) {
+
+    /** 学生上下文 */
+    public static ToolContext student(UUID accountId, UUID studentId, UUID sessionId, Tier tier) {
+        return new ToolContext(accountId, studentId, sessionId, tier, ScopeKind.STUDENT);
+    }
+
+    /** 教师上下文(无单一学生主体;目标由入参给、经归属闸校验) */
+    public static ToolContext teacher(UUID accountId, UUID sessionId, Tier tier) {
+        return new ToolContext(accountId, null, sessionId, tier, ScopeKind.TEACHER);
+    }
 
     /** 调试端点/无会话场景:仅账号 + 主体 */
     public static ToolContext of(UUID accountId, UUID studentId) {
-        return new ToolContext(accountId, studentId, null, Tier.FAST);
+        return new ToolContext(accountId, studentId, null, Tier.FAST, ScopeKind.STUDENT);
     }
 }
