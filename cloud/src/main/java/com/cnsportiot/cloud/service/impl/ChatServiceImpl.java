@@ -163,7 +163,7 @@ public class ChatServiceImpl implements ChatService {
         // 工具:全局开关 + 本轮路由都允许才开放;权威身份从 token 而来,不由模型选择
         List<AgentTool> tools = (props.getTools().isExposeInChat() && decision.exposeTools())
                 ? toolRegistry.all() : List.of();
-        ToolContext toolContext = new ToolContext(accountId, studentId, sessionId, tier);
+        ToolContext toolContext = ToolContext.student(accountId, studentId, sessionId, tier);
 
         LlmGateway.StreamRequest llmReq =
                 new LlmGateway.StreamRequest(system, history, request.content(), tier, null, tools, toolContext);
@@ -242,6 +242,7 @@ public class ChatServiceImpl implements ChatService {
                     "code", ErrorCode.LLM_UNAVAILABLE.code(),
                     "message", "AI 服务暂不可用,请稍后重试"));
         } else {
+            maybeSuggestTeacherAssist(run);   // 多轮未解决推 assist 事件(best-effort,先于 done)
             send(run.emitter, "done",
                     new ChatDoneEvent(run.assistantMessageId, reason, null, List.of()));
         }
@@ -383,6 +384,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private ChatSession requireOwnedSession(UUID sessionId, UUID studentId) {
+        requireStudentIdentity(studentId);
         ChatSession session = sessionRepo.findById(sessionId)
                 .orElseThrow(() -> BusinessException.notFound("会话不存在"));
         if (session.isDeleted() || !session.getStudentId().equals(studentId)) {
