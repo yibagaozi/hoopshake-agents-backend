@@ -48,4 +48,15 @@ public interface LessonRepository extends JpaRepository<Lesson, UUID>, JpaSpecif
             @Param("lessonId") UUID lessonId,
             @Param("targetStatus") LessonStatus targetStatus
     );
+
+    // 教师作用域(分析 Agent 归属校验 / 发现层工具)
+
+    /** 教师名下全部课程(发现层 list_my_lessons) */
+    List<Lesson> findByTeacherIdOrderByScheduledAtDesc(UUID teacherId);
+
+    /** 课程归属校验:该课程属于该教师 */
+    boolean existsByIdAndTeacherId(UUID id, UUID teacherId);
+
+    /** 班级归属校验:该 classCode 下有本教师课程 */
+    boolean existsByClassCodeAndTeacherId(String classCode, UUID teacherId);
 }

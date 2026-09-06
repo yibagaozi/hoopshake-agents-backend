@@ -85,4 +85,49 @@ public interface LessonEnrollmentRepository extends JpaRepository<LessonEnrollme
         UUID getLessonId();
         long getCount();
     }
+
+    // 教师作用域(分析 Agent 归属校验 / 发现层工具)
+
+    /** 该生是否在本教师任一课程报名(教师侧越权校验 / resolve 归属) */
+    @Query("""
+            SELECT COUNT(e) > 0 FROM LessonEnrollment e
+                 JOIN Lesson l ON l.id = e.lessonId
+            WHERE l.teacherId = :teacherId AND e.studentId = :studentId
+            """)
+    boolean existsStudentUnderTeacher(@Param("teacherId") UUID teacherId,
+                                      @Param("studentId") UUID studentId);
+
+    /** 发现层 resolve_student:教师范围内按姓名/学号模糊查人 */
+    interface StudentRefView {
+        UUID getStudentId();
+        String getStudentNo();
+        String getDisplayName();
+    }
+
+    @Query("""
+            SELECT DISTINCT s.id AS studentId, s.studentNo AS studentNo, a.displayName AS displayName
+            FROM LessonEnrollment e
+                 JOIN Lesson l   ON l.id = e.lessonId
+                 JOIN Student s  ON s.id = e.studentId
+                 JOIN Account a  ON a.id = s.accountId
+            WHERE l.teacherId = :teacherId
+              AND ( LOWER(a.displayName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                    OR s.studentNo LIKE CONCAT('%', :keyword, '%') )
+            ORDER BY s.studentNo
+            """)
+    List<StudentRefView> searchStudentsUnderTeacher(@Param("teacherId") UUID teacherId,
+                                                    @Param("keyword") String keyword);
+
+    /** 群体聚合:多课程去重学生集合 */
+    @Query("SELECT DISTINCT e.studentId FROM LessonEnrollment e WHERE e.lessonId IN :lessonIds")
+    List<UUID> findStudentIdsByLessonIds(@Param("lessonIds") Collection<UUID> lessonIds);
+
+    /** 群体聚合:教师某班级号去重学生集合 */
+    @Query("""
+            SELECT DISTINCT e.studentId FROM LessonEnrollment e
+                 JOIN Lesson l ON l.id = e.lessonId
+            WHERE l.teacherId = :teacherId AND l.classCode = :classCode
+            """)
+    List<UUID> findStudentIdsByTeacherAndClassCode(@Param("teacherId") UUID teacherId,
+                                                   @Param("classCode") String classCode);
 }
