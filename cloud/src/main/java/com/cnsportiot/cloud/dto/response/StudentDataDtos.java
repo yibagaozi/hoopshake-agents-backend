@@ -86,8 +86,6 @@ public final class StudentDataDtos {
     /** 4.7 进步趋势 */
     public record ProgressTrendResponse(String actionType, String metric, List<TrendPoint> points) {}
 
-    public record TrendPoint(UUID sessionId, OffsetDateTime recordedAt, BigDecimal value) {}
-
     public record OverviewResponse(
             UUID studentId, String displayName, int totalSessions, int totalClips,
             OffsetDateTime lastSessionAt, Weekly weekly, FocusCheckpoint focusCheckpoint,
@@ -126,6 +124,8 @@ public final class StudentDataDtos {
             Object measured, BigDecimal confidence, String sourceCamera) {}
 
     public record TrendResponse(String actionType, String metric, List<TrendPoint> points) {}
+
+    public record TrendPoint(UUID sessionId, OffsetDateTime recordedAt, double value) {}
 
     public record ProfileResponse(
             UUID studentId, String studentNo, String displayName, String dominantHand,
