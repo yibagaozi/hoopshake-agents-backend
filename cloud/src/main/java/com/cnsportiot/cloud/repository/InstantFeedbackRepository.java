@@ -94,4 +94,51 @@ public interface InstantFeedbackRepository extends JpaRepository<InstantFeedback
         String getCheckpointId();
         long getCnt();
     }
+
+    /** 某学生某会话的即时反馈流水 */
+    List<InstantFeedback> findByStudentIdAndSessionIdOrderByOccurredAtAsc(UUID studentId, UUID sessionId);
+
+    // 学生训练数据端点
+    long countByStudentIdAndSessionId(UUID studentId, UUID sessionId);
+    org.springframework.data.domain.Page<InstantFeedback>
+        findByStudentIdAndSessionId(UUID studentId, UUID sessionId, org.springframework.data.domain.Pageable pageable);
+    org.springframework.data.domain.Page<InstantFeedback>
+        findByStudentIdAndSessionIdAndSeverity(UUID studentId, UUID sessionId, FeedbackSeverity severity,
+                                               org.springframework.data.domain.Pageable pageable);
+
+    /** 一组学生的共性问题(按 severity 过滤,按受影响人数降序) */
+    interface CommonIssueRow {
+        String getCheckpointId();
+        long getAffected();
+        long getTotal();
+    }
+
+    @Query("""
+            SELECT f.checkpointId AS checkpointId,
+                   COUNT(DISTINCT f.studentId) AS affected,
+                   COUNT(f) AS total
+            FROM InstantFeedback f
+            WHERE f.studentId IN :ids AND f.severity = :severity
+            GROUP BY f.checkpointId
+            ORDER BY COUNT(DISTINCT f.studentId) DESC
+            """)
+    List<CommonIssueRow> findCommonIssues(@Param("ids") Collection<UUID> ids,
+                                          @Param("severity") FeedbackSeverity severity);
+
+    /** 某学生某会话按检查点聚合(major 命中数 / 总数),供单次检查点通过率 */
+    interface CheckpointAgg {
+        String getCheckpointId();
+        long getMajor();
+        long getTotal();
+    }
+
+    @Query("""
+            SELECT f.checkpointId AS checkpointId,
+                   SUM(CASE WHEN f.severity = com.cnsportiot.contracts.enums.FeedbackSeverity.MAJOR THEN 1 ELSE 0 END) AS major,
+                   COUNT(f) AS total
+            FROM InstantFeedback f
+            WHERE f.studentId = :sid AND f.sessionId = :sessionId
+            GROUP BY f.checkpointId
+            """)
+    List<CheckpointAgg> checkpointAgg(@Param("sid") UUID sid, @Param("sessionId") UUID sessionId);
 }

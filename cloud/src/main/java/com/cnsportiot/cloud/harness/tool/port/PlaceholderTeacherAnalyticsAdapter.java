@@ -3,9 +3,7 @@ package com.cnsportiot.cloud.harness.tool.port;
 import org.springframework.stereotype.Component;
 
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * {@link TeacherAnalyticsPort} 的占位实现:确定性伪数据(按 studentId 派生),
@@ -94,6 +92,22 @@ public class PlaceholderTeacherAnalyticsAdapter implements TeacherAnalyticsPort 
         }
         out.sort((a, b) -> Integer.compare(b.affectedStudents(), a.affectedStudents()));
         return out;
+    }
+
+    @Override
+    public ActionAngleProfile actionAngleProfile(UUID studentId, String actionType) {
+        // 确定性伪画像:肘/膝在合理范围内按 studentId 派生;含 right_wrist 死值(应被 scorer 排除)
+        Map<String, Double> angles = new LinkedHashMap<>();
+        angles.put("right_elbow", round1(150 + 30 * unit(studentId, "re")));   // 150..180
+        angles.put("left_elbow", round1(150 + 30 * unit(studentId, "le")));
+        angles.put("right_knee", round1(150 + 25 * unit(studentId, "rk")));    // 150..175
+        angles.put("left_knee", round1(150 + 25 * unit(studentId, "lk")));
+        angles.put("right_wrist", 180.0);   // 死值
+        return new ActionAngleProfile(studentId, actionType, angles, "triangulated_3d", 3, NOTE);
+    }
+
+    private static double round1(double v) {
+        return Math.round(v * 10.0) / 10.0;
     }
 }
 

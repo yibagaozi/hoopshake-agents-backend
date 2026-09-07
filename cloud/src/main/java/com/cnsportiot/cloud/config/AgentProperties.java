@@ -48,6 +48,12 @@ public class AgentProperties {
     @NestedConfigurationProperty
     private Assist assist = new Assist();
 
+    @NestedConfigurationProperty
+    private Resilience resilience = new Resilience();
+
+    @NestedConfigurationProperty
+    private Baseline baseline = new Baseline();
+
     /** 按档位取模型规格。业务/网关用 {@link Tier} 枚举,不直接摸字符串 */
     public ModelSpec specForTier(Tier tier) {
         return switch (tier == null ? Tier.STANDARD : tier) {
@@ -164,16 +170,121 @@ public class AgentProperties {
     }
 
     /**
-     * 「请求教师协助」触发判定(混合:硬门槛 + LLM 确认)。
+     * 请求教师协助触发判定(混合:硬门槛 + LLM 确认)
      * 达到 {@code minRounds} 轮学生提问后,才用 FAST 档 LLM 判定疑问是否仍未解决;
      * 判定为未解决时,SSE 推 {@code assist} 事件让前端展示协助按钮
      */
     @Getter
     @Setter
     public static class Assist {
-        /** 是否启用协助触发判定。 */
+        /** 是否启用协助触发判定 */
         private boolean enabled = true;
-        /** 触发 LLM 判定的最小学生提问轮次(硬门槛)。 */
+        /** 触发 LLM 判定的最小学生提问轮次 */
         private int minRounds = 3;
+    }
+
+    /**
+     * LLM 调用韧性:指数退避,抖动,熔断
+     */
+    @Getter
+    @Setter
+    public static class Resilience {
+        @NestedConfigurationProperty
+        private BackoffCfg backoff = new BackoffCfg();
+        @NestedConfigurationProperty
+        private CircuitCfg circuit = new CircuitCfg();
+        @NestedConfigurationProperty
+        private SseCfg sse = new SseCfg();
+        @NestedConfigurationProperty
+        private BulkheadCfg bulkhead = new BulkheadCfg();
+        @NestedConfigurationProperty
+        private RateLimitCfg rateLimit = new RateLimitCfg();
+
+        @Getter
+        @Setter
+        public static class BackoffCfg {
+            /** 首次重试基准等待(ms);cap = min(base·2^n, max) */
+            private long baseMillis = 500;
+            /** 退避上限(ms) */
+            private long maxMillis = 8_000;
+            /** 全抖动 */
+            private boolean jitter = true;
+        }
+
+        @Getter
+        @Setter
+        public static class CircuitCfg {
+            private boolean enabled = true;
+            /** 连续失败达此数即 OPEN */
+            private int failureThreshold = 5;
+            /** OPEN 冷却时长(ms),期间快速失败 */
+            private long openMillis = 15_000;
+        }
+
+        /**
+         * SSE 硬上限超时:防僵尸流。到点由容器触发 onTimeout,现有收尾逻辑收敛
+         * GLM reasoning=high/max 慢,别设太短致长回答被误杀;0 表示不设
+         */
+        @Getter
+        @Setter
+        public static class SseCfg {
+            private long hardTimeoutMillis = 300_000;   // 5min
+        }
+
+        /**
+         * 全局 LLM 流并发上限(bulkhead/舱壁):同时进行的对话流数封顶,超限快速 42900,
+         * 防一次流量尖峰把内存/线程/提供方打爆(退避+熔断的补充:限住入口并发)
+         * ≤0 表示不限。学生端 + 教师端共享同一配额
+         */
+        @Getter
+        @Setter
+        public static class BulkheadCfg {
+            private int maxConcurrentStreams = 32;
+        }
+
+        /**
+         * 按账号对 /ask 令牌桶限流
+         * 桶容量 {@code burst}(允许的突发),按 {@code refillPerMinute} 匀速回填
+         */
+        @Getter
+        @Setter
+        public static class RateLimitCfg {
+            private boolean enabled = true;
+            /** 桶容量:短时间内允许的最大连发提问数 */
+            private int burst = 8;
+            /** 每分钟回填令牌数(稳态提问速率) */
+            private int refillPerMinute = 30;
+        }
+    }
+
+    /**
+     * 动作标准度基准
+     * {@code studentId} 未配置时该工具返回提示而非报错。基准来源只由服务端配置,不由模型入参指定
+     *
+     * <pre>
+     * hoopshake:
+     *   agent:
+     *     baseline:
+     *       student-id: &lt;stu_03 的 studentId UUID&gt;
+     *       angles-source: triangulated_3d
+     *       default-tolerance-deg: 15
+     *       scale-deg: 40
+     *       dead-joints: [right_wrist]
+     * </pre>
+     */
+    @Getter
+    @Setter
+    public static class Baseline {
+        /** 基准运动员 studentId(stu_03);为空则 compare_to_reference 返回"未配置基准"提示 */
+        private String studentId;
+        /** 基准角度来源;与目标必须同源方可比(默认 triangulated_3d) */
+        private String anglesSource = "triangulated_3d";
+        /** 每关节默认容差带(度) */
+        private double defaultToleranceDeg = 15.0;
+        /** 归一尺度(度):s = clamp(1 - dev/scale, 0, 1) */
+        private double scaleDeg = 40.0;
+        /** 排除的死值关节(如 right_wrist 恒 180) */
+        private java.util.List<String> deadJoints =
+                new java.util.ArrayList<>(java.util.List.of("right_wrist"));
     }
 }
