@@ -24,6 +24,10 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
 
     boolean existsByStudentNo(String studentNo);
 
+    /** 学生展示名 */
+    @Query("SELECT a.displayName FROM Student s JOIN Account a ON a.id = s.accountId WHERE s.id = :sid")
+    Optional<String> findDisplayNameByStudentId(@Param("sid") UUID sid);
+
     interface StudentBrief {
         UUID getStudentId();
         String getStudentNo();
