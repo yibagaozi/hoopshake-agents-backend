@@ -15,6 +15,7 @@ import com.cnsportiot.cloud.harness.rag.Snippet;
 import com.cnsportiot.cloud.harness.router.RouteDecision;
 import com.cnsportiot.cloud.harness.router.RouterService;
 import com.cnsportiot.cloud.harness.tool.AgentTool;
+import com.cnsportiot.cloud.harness.tool.ScopeKind;
 import com.cnsportiot.cloud.harness.tool.ToolContext;
 import com.cnsportiot.cloud.harness.tool.ToolRegistry;
 import com.cnsportiot.cloud.repository.ChatMessageRepository;
@@ -142,9 +143,21 @@ public class ChatServiceImpl implements ChatService {
         RouteDecision decision = routerService.route(request.content(), anchored);
         Tier tier = decision.tier();
 
-        List<Snippet> ragHits = decision.useRag()
-                ? retrieve(request.content(), decision.maxInjected())
-                : List.of();
+        // RAG 检索:向量库故障不打断对话,降级为无检索
+        boolean ragDegraded = false;
+        List<Snippet> ragHits;
+        if (decision.useRag()) {
+            try {
+                ragHits = retrieve(request.content(), decision.maxInjected());
+            } catch (RuntimeException e) {
+                log.warn("RAG 检索失败,降级为无检索 sessionId={}: {}", sessionId, e.toString());
+                ragHits = List.of();
+                ragDegraded = true;
+            }
+        } else {
+            ragHits = List.of();
+        }
+
         // 调试可视:把本轮注入的召回片段推给前端(生产前端可忽略此事件)
         send(emitter, "rag", new ChatRagEvent(ragHits.stream()
                 .map(s -> new RagHit(s.docId(), s.sectionTitle(), s.score())).toList()));
@@ -153,6 +166,7 @@ public class ChatServiceImpl implements ChatService {
         ActiveRun run = new ActiveRun(sessionId, shell.getId(), emitter);
         run.decision = decision;
         run.ragHits = ragHits;
+        run.ragDegraded = ragDegraded;
         run.userQuestion = request.content();
         activeRuns.put(sessionId, run);
 
@@ -162,7 +176,7 @@ public class ChatServiceImpl implements ChatService {
 
         // 工具:全局开关 + 本轮路由都允许才开放;权威身份从 token 而来,不由模型选择
         List<AgentTool> tools = (props.getTools().isExposeInChat() && decision.exposeTools())
-                ? toolRegistry.all() : List.of();
+                ? toolRegistry.byScope(ScopeKind.STUDENT) : List.of();
         ToolContext toolContext = ToolContext.student(accountId, studentId, sessionId, tier);
 
         LlmGateway.StreamRequest llmReq =
@@ -225,6 +239,14 @@ public class ChatServiceImpl implements ChatService {
             run.heartbeat.cancel(true);
         }
         activeRuns.remove(run.sessionId, run);
+
+        // 空回答兜底:正常结束但模型没产出任何正文,给一句兜底话术,前端不空白
+        if (error == null && run.buffer.length() == 0 && !"interrupted".equals(reason)) {
+            String fb = "抱歉,这次没能生成有效回答。请换个说法再问,或稍后重试。";
+            run.buffer.append(fb);
+            run.emptyFallback = true;
+            send(run.emitter, "delta", new ChatDeltaEvent(fb));
+        }
 
         try {
             messageRepo.findById(run.assistantMessageId).ifPresent(m -> {
@@ -349,6 +371,36 @@ public class ChatServiceImpl implements ChatService {
         if (error != null) {
             detail.put("error", true);
         }
+
+        // 在线质量信号(供生产采样 / 异步 LLM 评审 / 仪表盘,见 docs/agent/agent-eval-and-resilience.md)
+        Map<String, Object> quality = new LinkedHashMap<>();
+        quality.put("ragHitCount", run.ragHits.size());
+        double maxScore = 0.0;
+        for (Snippet s : run.ragHits) {
+            if (s.score() != null && s.score() > maxScore) {
+                maxScore = s.score();
+            }
+        }
+        quality.put("ragMaxScore", run.ragHits.isEmpty() ? null : Math.round(maxScore * 1000.0) / 1000.0);
+        int toolOk = 0, toolDeny = 0, toolError = 0;
+        for (Map<String, Object> t : run.toolTrace) {
+            String st = String.valueOf(t.get("status")).toLowerCase();
+            if (st.contains("deny")) {
+                toolDeny++;
+            } else if (st.contains("error")) {
+                toolError++;
+            } else {
+                toolOk++;
+            }
+        }
+        quality.put("toolOk", toolOk);
+        quality.put("toolDeny", toolDeny);
+        quality.put("toolError", toolError);
+        quality.put("finishReason", reason);
+        quality.put("answerChars", run.buffer.length());
+        quality.put("degraded", run.ragDegraded || run.emptyFallback || error != null);
+        detail.put("quality", quality);
+
         return detail;
     }
 
@@ -435,6 +487,8 @@ public class ChatServiceImpl implements ChatService {
         volatile RouteDecision decision;
         volatile List<Snippet> ragHits = List.of();
         volatile String userQuestion;
+        volatile boolean ragDegraded;
+        volatile boolean emptyFallback;
 
         ActiveRun(UUID sessionId, UUID assistantMessageId, SseEmitter emitter) {
             this.sessionId = sessionId;
