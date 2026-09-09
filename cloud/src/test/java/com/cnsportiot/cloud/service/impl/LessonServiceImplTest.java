@@ -114,9 +114,10 @@ class LessonServiceImplTest {
         );
 
         assertThatThrownBy(() -> service.create(request, teacherId))
-                .isInstanceOf(BusinessException.class)
-                .extracting(BusinessException::errorCode)
-                .isEqualTo(ErrorCode.PARAM_INVALID);
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.errorCode())
+                        .isEqualTo(ErrorCode.PARAM_INVALID)
+        );
     }
 
     // §5.2 课程列表：按教师归属查询，并汇总每节课的报名人数。

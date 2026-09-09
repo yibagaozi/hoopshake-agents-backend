@@ -88,8 +88,9 @@ class StudentProvisioningServiceImplTest {
         given(accountRepository.save(any(Account.class))).willThrow(new DataIntegrityViolationException("dup"));
 
         assertThatThrownBy(() -> service.provisionByStudentNo(studentNo, "Alice"))
-                .isInstanceOf(BusinessException.class)
-                .extracting(BusinessException::errorCode)
-                .isEqualTo(ErrorCode.DUPLICATE_IDENTIFIER);
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.errorCode())
+                        .isEqualTo(ErrorCode.DUPLICATE_IDENTIFIER)
+        );
     }
 }

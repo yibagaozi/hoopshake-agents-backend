@@ -1,170 +1,168 @@
 package com.cnsportiot.cloud.service.impl;
 
 import com.cnsportiot.cloud.domain.entity.Lesson;
-import com.cnsportiot.cloud.domain.enums.AccountStatus;
 import com.cnsportiot.cloud.domain.enums.LessonStatus;
 import com.cnsportiot.cloud.dto.request.EnrollmentRequests.ImportEnrollmentRequest;
 import com.cnsportiot.cloud.dto.request.EnrollmentRequests.StudentEntry;
-import com.cnsportiot.cloud.dto.response.EnrollmentDtos.EnrollmentItem;
 import com.cnsportiot.cloud.dto.response.EnrollmentDtos.ImportPreviewResponse;
 import com.cnsportiot.cloud.repository.LessonEnrollmentRepository;
 import com.cnsportiot.cloud.repository.LessonRepository;
 import com.cnsportiot.cloud.repository.StudentRepository;
+import com.cnsportiot.cloud.repository.StudentRepository.StudentRef;
 import com.cnsportiot.cloud.service.StudentProvisioningService;
+import com.cnsportiot.contracts.error.BusinessException;
+import com.cnsportiot.contracts.error.ErrorCode;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.mockito.ArgumentCaptor;
 
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.BDDMockito.given;
-import static org.mockito.BDDMockito.then;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
 
-@ExtendWith(MockitoExtension.class)
-/**
- * §5.6 ~ §5.11 参课名单与导入预检：覆盖名单列表、批量导入、去重、并发建档和预检分流逻辑。
- */
+/** LessonEnrollmentServiceImpl 单测:归属/结课校验、名单去重、缺失建档、幂等报名、预检分组与非法学号。 */
 class LessonEnrollmentServiceImplTest {
 
-    @Mock
-    private LessonRepository lessonRepository;
+    private static final UUID TEACHER = UUID.fromString("11111111-0000-0000-0000-000000000001");
+    private static final UUID OTHER = UUID.fromString("11111111-0000-0000-0000-000000000002");
+    private static final UUID LESSON = UUID.fromString("22222222-0000-0000-0000-000000000001");
+    private static final UUID SID_EXIST = UUID.fromString("33333333-0000-0000-0000-00000000000e");
+    private static final UUID SID_NEW = UUID.fromString("33333333-0000-0000-0000-0000000000aa");
 
-    @Mock
-    private StudentRepository studentRepository;
+    private LessonRepository lessonRepo;
+    private StudentRepository studentRepo;
+    private LessonEnrollmentRepository enrollmentRepo;
+    private StudentProvisioningService provisioning;
+    private LessonEnrollmentServiceImpl svc;
 
-    @Mock
-    private LessonEnrollmentRepository enrollmentRepository;
-
-    @Mock
-    private StudentProvisioningService studentProvisioning;
-
-    @InjectMocks
-    private LessonEnrollmentServiceImpl service;
-
-    private Lesson lesson(UUID lessonId, UUID teacherId, LessonStatus status) {
-        Lesson lesson = Lesson.builder()
-                .teacherId(teacherId)
-                .title("Math")
-                .actionTypes(List.of("shot"))
-                .enabledCheckpoints(List.of())
-                .status(status)
-                .build();
-        ReflectionTestUtils.setField(lesson, "id", lessonId);
-        return lesson;
+    @BeforeEach
+    void setup() {
+        lessonRepo = mock(LessonRepository.class);
+        studentRepo = mock(StudentRepository.class);
+        enrollmentRepo = mock(LessonEnrollmentRepository.class);
+        provisioning = mock(StudentProvisioningService.class);
+        svc = new LessonEnrollmentServiceImpl(lessonRepo, studentRepo, enrollmentRepo, provisioning);
+        lenient().when(enrollmentRepo.findEnrollmentView(any())).thenReturn(List.of());
     }
 
-    private LessonEnrollmentRepository.EnrollmentView enrollmentView(UUID studentId, String studentNo, String displayName, boolean galleryReady) {
-        LessonEnrollmentRepository.EnrollmentView view = org.mockito.Mockito.mock(LessonEnrollmentRepository.EnrollmentView.class);
-        org.mockito.Mockito.when(view.getStudentId()).thenReturn(studentId);
-        org.mockito.Mockito.when(view.getStudentNo()).thenReturn(studentNo);
-        org.mockito.Mockito.when(view.getDisplayName()).thenReturn(displayName);
-        org.mockito.Mockito.when(view.getAccountStatus()).thenReturn(AccountStatus.ACTIVE);
-        org.mockito.Mockito.when(view.getGalleryReady()).thenReturn(galleryReady);
-        org.mockito.Mockito.when(view.getEnrolledAt()).thenReturn(OffsetDateTime.parse("2026-08-21T09:00:00Z"));
-        return view;
+    private void lessonOwned(LessonStatus status) {
+        Lesson l = Lesson.builder().teacherId(TEACHER).status(status).build();
+        when(lessonRepo.findById(LESSON)).thenReturn(Optional.of(l));
     }
 
-    private StudentRepository.StudentRef studentRef(UUID studentId, String studentNo, String displayName) {
-        StudentRepository.StudentRef ref = org.mockito.Mockito.mock(StudentRepository.StudentRef.class);
-        org.mockito.Mockito.when(ref.getStudentId()).thenReturn(studentId);
-        org.mockito.Mockito.when(ref.getStudentNo()).thenReturn(studentNo);
-        org.mockito.Mockito.when(ref.getDisplayName()).thenReturn(displayName);
-        return ref;
+    private static StudentRef ref(UUID id, String no, String name) {
+        return new StudentRef() {
+            public UUID getStudentId() { return id; }
+            public String getStudentNo() { return no; }
+            public String getDisplayName() { return name; }
+        };
     }
 
-    // §5.6 参课名单：只返回当前课程归属教师可见的报名记录。
-    @Test
-    void list_returnsEnrollmentItems() {
-        UUID lessonId = UUID.randomUUID();
-        UUID teacherId = UUID.randomUUID();
-        UUID studentId = UUID.randomUUID();
+    // ---- 归属 / 结课 ----
 
-        given(lessonRepository.findById(lessonId)).willReturn(Optional.of(lesson(lessonId, teacherId, LessonStatus.PLANNED)));
-        given(enrollmentRepository.findEnrollmentView(lessonId)).willReturn(List.of(enrollmentView(studentId, "1234567890", "Alice", true)));
-
-        List<EnrollmentItem> result = service.list(lessonId, teacherId);
-
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).studentNo()).isEqualTo("1234567890");
-        assertThat(result.get(0).displayName()).isEqualTo("Alice");
-        assertThat(result.get(0).galleryReady()).isTrue();
+    @Test void list_notFound() {
+        when(lessonRepo.findById(LESSON)).thenReturn(Optional.empty());
+        assertBusiness(() -> svc.list(LESSON, TEACHER), ErrorCode.NOT_FOUND);
     }
 
-    // §5.7 批量导入名单：同学号去重，已存在学生直接报名，未存在学生需先建档再报名，并保留 justCreated 标记。
-    @Test
-    void importStudents_createsNewStudentAndEnrolls() {
-        UUID lessonId = UUID.randomUUID();
-        UUID teacherId = UUID.randomUUID();
-        UUID newStudentId = UUID.randomUUID();
-        UUID existingStudentId = UUID.randomUUID();
-
-        given(lessonRepository.findById(lessonId)).willReturn(Optional.of(lesson(lessonId, teacherId, LessonStatus.PLANNED)));
-        given(studentRepository.findRefsByStudentNoIn(anyList())).willReturn(List.of(studentRef(existingStudentId, "0987654321", "Bob")));
-        given(studentProvisioning.provisionByStudentNo("1234567890", "Alice")).willReturn(newStudentId);
-        given(enrollmentRepository.enrollIfAbsent(lessonId, newStudentId)).willReturn(1);
-        given(enrollmentRepository.enrollIfAbsent(lessonId, existingStudentId)).willReturn(1);
-        given(enrollmentRepository.findEnrollmentView(lessonId)).willReturn(List.of(
-                enrollmentView(newStudentId, "1234567890", "Alice", false),
-                enrollmentView(existingStudentId, "0987654321", "Bob", true)
-        ));
-
-        var request = new ImportEnrollmentRequest(List.of(
-                new StudentEntry("1234567890", "Alice"),
-                new StudentEntry("1234567890", "Alice Again"),
-                new StudentEntry("0987654321", "Bob")
-        ));
-
-        List<EnrollmentItem> result = service.importStudents(lessonId, request, teacherId);
-
-        assertThat(result).hasSize(2);
-        assertThat(result).anySatisfy(item -> {
-            assertThat(item.studentId()).isEqualTo(newStudentId);
-            assertThat(item.justCreated()).isTrue();
-        });
-        assertThat(result).anySatisfy(item -> {
-            assertThat(item.studentId()).isEqualTo(existingStudentId);
-            assertThat(item.justCreated()).isFalse();
-        });
-        then(studentProvisioning).should().provisionByStudentNo("1234567890", "Alice");
+    @Test void list_notOwner_dataScopeDenied() {
+        lessonOwned(LessonStatus.PLANNED);
+        assertBusiness(() -> svc.list(LESSON, OTHER), ErrorCode.DATA_SCOPE_DENIED);
     }
 
-    // §5.11 导入预检：只读校验和分桶，不写库，要求 invalid / willCreate / willEnroll / alreadyEnrolled 四类互斥。
-    @Test
-    void preview_groupsExistingAndInvalidStudents() {
-        UUID lessonId = UUID.randomUUID();
-        UUID teacherId = UUID.randomUUID();
-        UUID alreadyEnrolledId = UUID.randomUUID();
-        UUID willEnrollId = UUID.randomUUID();
+    @Test void import_finishedLesson_stateConflict() {
+        lessonOwned(LessonStatus.FINISHED);
+        ImportEnrollmentRequest req = new ImportEnrollmentRequest(List.of(new StudentEntry("1234567890", "A")));
+        assertBusiness(() -> svc.importStudents(LESSON, req, TEACHER), ErrorCode.STATE_CONFLICT);
+    }
 
-        given(lessonRepository.findById(lessonId)).willReturn(Optional.of(lesson(lessonId, teacherId, LessonStatus.PLANNED)));
-        given(studentRepository.findRefsByStudentNoIn(anyList())).willReturn(List.of(
-                studentRef(alreadyEnrolledId, "1111111111", "Alice"),
-                studentRef(willEnrollId, "2222222222", "Bob")
-        ));
-        given(enrollmentRepository.findStudentIdsByLessonId(lessonId)).willReturn(List.of(alreadyEnrolledId));
+    @Test void cancel_finishedLesson_stateConflict() {
+        lessonOwned(LessonStatus.FINISHED);
+        assertBusiness(() -> svc.cancel(LESSON, SID_EXIST, TEACHER), ErrorCode.STATE_CONFLICT);
+    }
 
-        var request = new ImportEnrollmentRequest(List.of(
-                new StudentEntry("1111111111", "Alice"),
-                new StudentEntry("2222222222", "Bob"),
-                new StudentEntry("bad", "Nope")
-        ));
+    // import:去重 + 缺失建档 + 幂等报名
 
-        ImportPreviewResponse result = service.preview(lessonId, request, teacherId);
+    @Test void import_dedupesProvisionsMissingAndEnrolls() {
+        lessonOwned(LessonStatus.PLANNED);
+        // 两条相同学号(去重后一条)+ 一条已存在
+        ImportEnrollmentRequest req = new ImportEnrollmentRequest(List.of(
+                new StudentEntry("1111111111", "New"),
+                new StudentEntry("1111111111", "Dup"),      // 同号,被去重
+                new StudentEntry("2222222222", "Exist")));
+        when(studentRepo.findRefsByStudentNoIn(any()))
+                .thenReturn(List.of(ref(SID_EXIST, "2222222222", "Exist")));   // 只有 2222 已存在
+        when(provisioning.provisionByStudentNo(eq("1111111111"), any())).thenReturn(SID_NEW);
+        when(enrollmentRepo.enrollIfAbsent(eq(LESSON), any())).thenReturn(1);
 
-        assertThat(result.willCreate()).isEmpty();
-        assertThat(result.willEnroll()).hasSize(1);
-        assertThat(result.willEnroll().get(0).studentNo()).isEqualTo("2222222222");
-        assertThat(result.alreadyEnrolled()).hasSize(1);
-        assertThat(result.alreadyEnrolled().get(0).studentNo()).isEqualTo("1111111111");
-        assertThat(result.invalid()).hasSize(1);
-        assertThat(result.invalid().get(0).studentNo()).isEqualTo("bad");
+        svc.importStudents(LESSON, req, TEACHER);
+
+        // 缺失的建档一次;已存在的不建档
+        verify(provisioning, times(1)).provisionByStudentNo(eq("1111111111"), any());
+        verify(provisioning, never()).provisionByStudentNo(eq("2222222222"), any());
+        // 去重后 2 人各报名一次
+        verify(enrollmentRepo).enrollIfAbsent(LESSON, SID_NEW);
+        verify(enrollmentRepo).enrollIfAbsent(LESSON, SID_EXIST);
+        verify(enrollmentRepo, times(2)).enrollIfAbsent(eq(LESSON), any());
+    }
+
+    // ---- preview:分组 + 非法学号 ----
+
+    @Test void preview_classifiesInvalidCreateEnrollAlready() {
+        lessonOwned(LessonStatus.PLANNED);
+        ImportEnrollmentRequest req = new ImportEnrollmentRequest(List.of(
+                new StudentEntry("123", "BadNo"),            // 非 10 位 → invalid
+                new StudentEntry("1000000001", "ToCreate"),  // 不存在 → willCreate
+                new StudentEntry("1000000002", "Enroll"),    // 存在未报名 → willEnroll
+                new StudentEntry("1000000003", "Already")));  // 存在已报名 → alreadyEnrolled
+        UUID enrollId = UUID.randomUUID();
+        UUID alreadyId = UUID.randomUUID();
+        when(studentRepo.findRefsByStudentNoIn(any())).thenReturn(List.of(
+                ref(enrollId, "1000000002", "Enroll"),
+                ref(alreadyId, "1000000003", "Already")));
+        when(enrollmentRepo.findStudentIdsByLessonId(LESSON)).thenReturn(List.of(alreadyId));
+
+        ImportPreviewResponse r = svc.preview(LESSON, req, TEACHER);
+        assertThat(r.invalid()).extracting("studentNo").containsExactly("123");
+        assertThat(r.willCreate()).extracting("studentNo").containsExactly("1000000001");
+        assertThat(r.willEnroll()).extracting("studentId").containsExactly(enrollId);
+        assertThat(r.alreadyEnrolled()).extracting("studentId").containsExactly(alreadyId);
+        assertThat(r.total()).isEqualTo(4);
+        verifyNoInteractions(provisioning);   // 预检不建档
+        verify(enrollmentRepo, never()).enrollIfAbsent(any(), any());   // 预检不写
+    }
+
+    @Test void preview_existingStudent_usesDbDisplayNameNotRequestName() {
+        lessonOwned(LessonStatus.PLANNED);
+        ImportEnrollmentRequest req = new ImportEnrollmentRequest(List.of(
+                new StudentEntry("1000000002", "TeacherTypedName")));
+        UUID id = UUID.randomUUID();
+        when(studentRepo.findRefsByStudentNoIn(any()))
+                .thenReturn(List.of(ref(id, "1000000002", "DbCanonicalName")));
+        when(enrollmentRepo.findStudentIdsByLessonId(LESSON)).thenReturn(List.of());
+
+        ImportPreviewResponse r = svc.preview(LESSON, req, TEACHER);
+        assertThat(r.willEnroll()).singleElement()
+                .extracting("displayName").isEqualTo("DbCanonicalName");   // 用库里的名,防回显错名
+    }
+
+    // cancel 幂等
+
+    @Test void cancel_noMatch_idempotentNoThrow() {
+        lessonOwned(LessonStatus.ONGOING);
+        when(enrollmentRepo.deleteByLessonIdAndStudentId(LESSON, SID_EXIST)).thenReturn(0);
+        svc.cancel(LESSON, SID_EXIST, TEACHER);   // 不抛
+        verify(enrollmentRepo).deleteByLessonIdAndStudentId(LESSON, SID_EXIST);
+    }
+
+    private static void assertBusiness(org.assertj.core.api.ThrowableAssert.ThrowingCallable call, ErrorCode code) {
+        assertThatThrownBy(call).isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).errorCode()).isEqualTo(code));
     }
 }

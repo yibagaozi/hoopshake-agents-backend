@@ -99,7 +99,7 @@ class TeacherSummaryServiceImplTest {
         InstantFeedbackRepository.StudentCheckpointCount checkpointCount = org.mockito.Mockito.mock(InstantFeedbackRepository.StudentCheckpointCount.class);
         org.mockito.Mockito.when(checkpointCount.getStudentId()).thenReturn(studentId1);
         org.mockito.Mockito.when(checkpointCount.getCheckpointId()).thenReturn("stance");
-        org.mockito.Mockito.when(checkpointCount.getCnt()).thenReturn(2L);
+        //org.mockito.Mockito.when(checkpointCount.getCnt()).thenReturn(2L);
 
         InstantFeedbackRepository.CheckpointCount checkpointDistribution = org.mockito.Mockito.mock(InstantFeedbackRepository.CheckpointCount.class);
         org.mockito.Mockito.when(checkpointDistribution.getCheckpointId()).thenReturn("stance");
