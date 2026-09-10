@@ -14,6 +14,7 @@ import java.util.UUID;
  * @param studentId 数据主体(审计 target_student_id;工具读取的唯一身份)
  * @param sessionId 触发调用的对话会话(可空,如调试端点直调)
  * @param tier      本次调用的档位(供工具决定拉取粒度,可空)
+ * @param kind      作用域类型,决定走哪一道闸
  */
 public record ToolContext(UUID accountId, UUID studentId, UUID sessionId, Tier tier, ScopeKind kind) {
 
@@ -25,6 +26,11 @@ public record ToolContext(UUID accountId, UUID studentId, UUID sessionId, Tier t
     /** 教师上下文(无单一学生主体;目标由入参给、经归属闸校验) */
     public static ToolContext teacher(UUID accountId, UUID sessionId, Tier tier) {
         return new ToolContext(accountId, null, sessionId, tier, ScopeKind.TEACHER);
+    }
+
+    /** 运维上下文 全局只读 */
+    public static ToolContext ops(UUID accountId, UUID sessionId, Tier tier) {
+        return new ToolContext(accountId, null, sessionId, tier, ScopeKind.OPS);
     }
 
     /** 调试端点/无会话场景:仅账号 + 主体 */

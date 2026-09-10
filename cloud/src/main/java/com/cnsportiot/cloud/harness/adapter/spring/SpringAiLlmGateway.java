@@ -27,6 +27,7 @@ import reactor.core.Disposable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -83,6 +84,11 @@ public class SpringAiLlmGateway implements LlmGateway {
     @Override
     public boolean isEnabled() {
         return true;
+    }
+
+    @Override
+    public OptionalInt circuitState() {
+        return breaker == null ? OptionalInt.empty() : OptionalInt.of(breaker.stateCode());
     }
 
     @Override
