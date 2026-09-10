@@ -5,7 +5,7 @@ import com.cnsportiot.cloud.annotation.RequireRole;
 import com.cnsportiot.cloud.domain.enums.Role;
 import com.cnsportiot.cloud.dto.response.ChatDtos.ChatMessageResponse;
 import com.cnsportiot.cloud.dto.response.ChatDtos.ChatSessionResponse;
-import com.cnsportiot.cloud.ops.OpsChatService;
+import com.cnsportiot.cloud.ops.service.OpsChatService;
 import com.cnsportiot.cloud.ops.dto.OpsChatRequests.CreateOpsChatSessionRequest;
 import com.cnsportiot.cloud.ops.dto.OpsChatRequests.OpsChatAskRequest;
 import com.cnsportiot.cloud.ops.dto.OpsChatRequests.RenameOpsChatSessionRequest;
