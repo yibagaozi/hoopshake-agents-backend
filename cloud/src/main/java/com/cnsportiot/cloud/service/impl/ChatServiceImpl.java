@@ -12,6 +12,8 @@ import com.cnsportiot.cloud.harness.llm.LlmGateway;
 import com.cnsportiot.cloud.harness.llm.Tier;
 import com.cnsportiot.cloud.harness.rag.RagStore;
 import com.cnsportiot.cloud.harness.rag.Snippet;
+import com.cnsportiot.cloud.harness.ratelimit.LlmStreamBulkhead;
+import com.cnsportiot.cloud.harness.ratelimit.TokenBucketRateLimiter;
 import com.cnsportiot.cloud.harness.router.RouteDecision;
 import com.cnsportiot.cloud.harness.router.RouterService;
 import com.cnsportiot.cloud.harness.tool.AgentTool;
@@ -60,6 +62,8 @@ public class ChatServiceImpl implements ChatService {
     private final ToolRegistry toolRegistry;
     private final RouterService routerService;
     private final AgentProperties props;
+    private final TokenBucketRateLimiter askRateLimiter;
+    private final LlmStreamBulkhead bulkhead;
 
     private final ScheduledExecutorService heartbeat = Executors.newScheduledThreadPool(2, r -> {
         Thread t = new Thread(r, "chat-sse-heartbeat");
@@ -120,95 +124,124 @@ public class ChatServiceImpl implements ChatService {
             throw new BusinessException(ErrorCode.LLM_UNAVAILABLE);
         }
 
+        // 按账号限流:对话是最贵端点,拒绝在建任何 DB 记录之前
+        if (props.getResilience().getRateLimit().isEnabled() && !askRateLimiter.tryAcquire(accountId)) {
+            throw new BusinessException(ErrorCode.RATE_LIMITED, "提问过于频繁,请稍后再试。");
+        }
+
         // 已有进行中的生成 → 先收尾旧的(中断)
         ActiveRun previous = activeRuns.remove(sessionId);
         if (previous != null) {
             cancelAndFinalize(previous, "interrupted", null);
         }
 
-        // 上下文窗口(取本轮新消息之前的历史)
-        List<LlmGateway.Turn> history = loadHistory(sessionId);
-
-        // 落 USER + ASSISTANT 空壳
-        messageRepo.save(newMessage(sessionId, MessageRole.USER, request.content()));
-        ChatMessage shell = messageRepo.save(newMessage(sessionId, MessageRole.ASSISTANT, ""));
-        touchTitleIfBlank(sessionId, request.content());
-
-        SseEmitter emitter = new SseEmitter(0L);
-        send(emitter, "meta", new ChatMetaEvent(shell.getId(), sessionId));
-
-        // 路由:规则优先,疑难时 FAST 档意图分类。锚定训练的存在性校验属算法侧,
-        // 本里程碑隔离,仅用其存在与否影响路由(anchored → TRAINING_REVIEW)
-        boolean anchored = request.trainingSessionId() != null;
-        RouteDecision decision = routerService.route(request.content(), anchored);
-        Tier tier = decision.tier();
-
-        // RAG 检索:向量库故障不打断对话,降级为无检索
-        boolean ragDegraded = false;
-        List<Snippet> ragHits;
-        if (decision.useRag()) {
-            try {
-                ragHits = retrieve(request.content(), decision.maxInjected());
-            } catch (RuntimeException e) {
-                log.warn("RAG 检索失败,降级为无检索 sessionId={}: {}", sessionId, e.toString());
-                ragHits = List.of();
-                ragDegraded = true;
-            }
-        } else {
-            ragHits = List.of();
+        // 全局 LLM 流并发舱壁:满载快速失败(42900),防一次尖峰把内存/提供方打爆
+        if (!bulkhead.tryAcquire()) {
+            throw new BusinessException(ErrorCode.RATE_LIMITED, "当前对话并发已满,请稍后再试。");
         }
+        ActiveRun run = null;
+        boolean started = false;
 
-        // 调试可视:把本轮注入的召回片段推给前端(生产前端可忽略此事件)
-        send(emitter, "rag", new ChatRagEvent(ragHits.stream()
-                .map(s -> new RagHit(s.docId(), s.sectionTitle(), s.score())).toList()));
-        String system = buildSystemPrompt(ragHits, decision);
+        try {
+            // 上下文窗口(取本轮新消息之前的历史)
+            List<LlmGateway.Turn> history = loadHistory(sessionId);
 
-        ActiveRun run = new ActiveRun(sessionId, shell.getId(), emitter);
-        run.decision = decision;
-        run.ragHits = ragHits;
-        run.ragDegraded = ragDegraded;
-        run.userQuestion = request.content();
-        activeRuns.put(sessionId, run);
+            // 落 USER + ASSISTANT 空壳
+            messageRepo.save(newMessage(sessionId, MessageRole.USER, request.content()));
+            ChatMessage shell = messageRepo.save(newMessage(sessionId, MessageRole.ASSISTANT, ""));
+            touchTitleIfBlank(sessionId, request.content());
 
-        emitter.onCompletion(() -> activeRuns.remove(sessionId, run));
-        emitter.onTimeout(() -> cancelAndFinalize(run, "stop", null));
-        emitter.onError(t -> cancelAndFinalize(run, "stop", t));
+            // SSE 硬上限超时:防僵尸流;到点走 onTimeout 收尾
+            SseEmitter emitter = new SseEmitter(props.getResilience().getSse().getHardTimeoutMillis());
+            send(emitter, "meta", new ChatMetaEvent(shell.getId(), sessionId));
 
-        // 工具:全局开关 + 本轮路由都允许才开放;权威身份从 token 而来,不由模型选择
-        List<AgentTool> tools = (props.getTools().isExposeInChat() && decision.exposeTools())
-                ? toolRegistry.byScope(ScopeKind.STUDENT) : List.of();
-        ToolContext toolContext = ToolContext.student(accountId, studentId, sessionId, tier);
+            // 路由:规则优先,疑难时 FAST 档意图分类。锚定训练的存在性校验属算法侧,
+            // 本里程碑隔离,仅用其存在与否影响路由(anchored → TRAINING_REVIEW)
+            boolean anchored = request.trainingSessionId() != null;
+            RouteDecision decision = routerService.route(request.content(), anchored);
+            Tier tier = decision.tier();
 
-        LlmGateway.StreamRequest llmReq =
-                new LlmGateway.StreamRequest(system, history, request.content(), tier, null, tools, toolContext);
-        run.handle = llmGateway.stream(llmReq, new LlmGateway.StreamSink() {
-            @Override public void onDelta(String text) {
-                if (run.finished.get()) return;
-                run.buffer.append(text);
-                send(emitter, "delta", new ChatDeltaEvent(text));
-            }
-            @Override public void onToolEvent(String name, String status, String label) {
-                if (run.finished.get()) return;
-                if (!"running".equals(status)) {   // 只记终态,避免 running+ok 重复
-                    run.toolTrace.add(Map.of("name", name, "status", status));
+            // RAG 检索:向量库故障不打断对话,降级为无检索
+            boolean ragDegraded = false;
+            List<Snippet> ragHits;
+            if (decision.useRag()) {
+                try {
+                    ragHits = retrieve(request.content(), decision.maxInjected());
+                } catch (RuntimeException e) {
+                    log.warn("RAG 检索失败,降级为无检索 sessionId={}: {}", sessionId, e.toString());
+                    ragHits = List.of();
+                    ragDegraded = true;
                 }
-                send(emitter, "tool", new ChatToolEvent(name, status, label));
+            } else {
+                ragHits = List.of();
             }
-            @Override public void onComplete(String finishReason) {
-                finishRun(run, finishReason, null);
-            }
-            @Override public void onError(Throwable error) {
-                finishRun(run, "stop", error);
-            }
-        });
 
-        ScheduledFuture<?> hb = heartbeat.scheduleAtFixedRate(
-                () -> send(emitter, "ping", "ping"), HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
-        run.heartbeat = hb;
-        if (run.finished.get()) {   // 同步收尾(如禁用/立即失败)已发生
-            hb.cancel(true);
+            // 调试可视:把本轮注入的召回片段推给前端(生产前端可忽略此事件)
+            send(emitter, "rag", new ChatRagEvent(ragHits.stream()
+                    .map(s -> new RagHit(s.docId(), s.sectionTitle(), s.score())).toList()));
+            String system = buildSystemPrompt(ragHits, decision);
+
+            run = new ActiveRun(sessionId, shell.getId(), emitter);
+            run.decision = decision;
+            run.ragHits = ragHits;
+            run.ragDegraded = ragDegraded;
+            run.userQuestion = request.content();
+            run.release = bulkhead::release;   // 舱壁许可随本次 run 收尾时释放(finishRun 内幂等)
+            final ActiveRun r = run;
+            activeRuns.put(sessionId, run);
+
+            emitter.onCompletion(() -> activeRuns.remove(sessionId, r));
+            emitter.onTimeout(() -> cancelAndFinalize(r, "stop", null));
+            emitter.onError(t -> cancelAndFinalize(r, "stop", t));
+
+            // 工具:全局开关 + 本轮路由都允许才开放;权威身份从 token 而来,不由模型选择
+            List<AgentTool> tools = (props.getTools().isExposeInChat() && decision.exposeTools())
+                    ? toolRegistry.byScope(ScopeKind.STUDENT) : List.of();
+            ToolContext toolContext = ToolContext.student(accountId, studentId, sessionId, tier);
+
+            LlmGateway.StreamRequest llmReq =
+                    new LlmGateway.StreamRequest(system, history, request.content(), tier, null, tools, toolContext);
+            r.handle = llmGateway.stream(llmReq, new LlmGateway.StreamSink() {
+                @Override public void onDelta(String text) {
+                    if (r.finished.get()) return;
+                    r.buffer.append(text);
+                    send(emitter, "delta", new ChatDeltaEvent(text));
+                }
+                @Override public void onToolEvent(String name, String status, String label) {
+                    if (r.finished.get()) return;
+                    if (!"running".equals(status)) {   // 只记终态,避免 running+ok 重复
+                        r.toolTrace.add(Map.of("name", name, "status", status));
+                    }
+                    send(emitter, "tool", new ChatToolEvent(name, status, label));
+                }
+                @Override public void onComplete(String finishReason) {
+                    finishRun(r, finishReason, null);
+                }
+                @Override public void onError(Throwable error) {
+                    finishRun(r, "stop", error);
+                }
+            });
+            started = true;   // 已交给 gateway:此后收尾(含舱壁释放)由 finishRun 负责
+
+            ScheduledFuture<?> hb = heartbeat.scheduleAtFixedRate(
+                    () -> send(emitter, "ping", "ping"), HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
+            r.heartbeat = hb;
+            if (r.finished.get()) {   // 同步收尾(如禁用/立即失败)已发生
+                hb.cancel(true);
+            }
+            return emitter;
+        } catch (RuntimeException e) {
+            // 交给 gateway 之前的同步失败:释放舱壁许可并摘除,避免许可/句柄泄漏
+            if (!started) {
+                if (run != null) {
+                    activeRuns.remove(sessionId, run);
+                    run.releaseBulkhead();
+                } else {
+                    bulkhead.release();
+                }
+            }
+            throw e;
         }
-        return emitter;
     }
 
     @Override
@@ -239,6 +272,7 @@ public class ChatServiceImpl implements ChatService {
             run.heartbeat.cancel(true);
         }
         activeRuns.remove(run.sessionId, run);
+        run.releaseBulkhead();   // 归还全局并发许可(幂等,只放一次)
 
         // 空回答兜底:正常结束但模型没产出任何正文,给一句兜底话术,前端不空白
         if (error == null && run.buffer.length() == 0 && !"interrupted".equals(reason)) {
@@ -489,11 +523,21 @@ public class ChatServiceImpl implements ChatService {
         volatile String userQuestion;
         volatile boolean ragDegraded;
         volatile boolean emptyFallback;
+        volatile Runnable release;       // 释放舱壁许可;null 表示未占用
+        private final AtomicBoolean released = new AtomicBoolean(false);
 
         ActiveRun(UUID sessionId, UUID assistantMessageId, SseEmitter emitter) {
             this.sessionId = sessionId;
             this.assistantMessageId = assistantMessageId;
             this.emitter = emitter;
+        }
+
+        /** 归还舱壁许可,至多一次(收尾/异常路径均可调用) */
+        void releaseBulkhead() {
+            Runnable r = release;
+            if (r != null && released.compareAndSet(false, true)) {
+                r.run();
+            }
         }
     }
 }

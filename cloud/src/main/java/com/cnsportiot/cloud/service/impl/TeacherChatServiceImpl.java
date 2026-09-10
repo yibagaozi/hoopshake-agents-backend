@@ -10,6 +10,8 @@ import com.cnsportiot.cloud.dto.request.TeacherChatRequests.TeacherChatAskReques
 import com.cnsportiot.cloud.dto.response.ChatDtos.*;
 import com.cnsportiot.cloud.harness.llm.LlmGateway;
 import com.cnsportiot.cloud.harness.llm.Tier;
+import com.cnsportiot.cloud.harness.ratelimit.LlmStreamBulkhead;
+import com.cnsportiot.cloud.harness.ratelimit.TokenBucketRateLimiter;
 import com.cnsportiot.cloud.harness.tool.AgentTool;
 import com.cnsportiot.cloud.harness.tool.ScopeKind;
 import com.cnsportiot.cloud.harness.tool.ToolContext;
@@ -54,6 +56,8 @@ public class TeacherChatServiceImpl implements TeacherChatService {
     private final LlmGateway llmGateway;
     private final ToolRegistry toolRegistry;
     private final AgentProperties props;
+    private final TokenBucketRateLimiter askRateLimiter;
+    private final LlmStreamBulkhead bulkhead;
 
     private final ScheduledExecutorService heartbeat = Executors.newScheduledThreadPool(2, r -> {
         Thread t = new Thread(r, "teacher-chat-sse-heartbeat");
@@ -110,60 +114,86 @@ public class TeacherChatServiceImpl implements TeacherChatService {
         if (!llmGateway.isEnabled()) {
             throw new BusinessException(ErrorCode.LLM_UNAVAILABLE);
         }
+        // 按账号限流(对话最贵),拒绝在建任何 DB 记录之前
+        if (props.getResilience().getRateLimit().isEnabled() && !askRateLimiter.tryAcquire(teacherAccountId)) {
+            throw new BusinessException(ErrorCode.RATE_LIMITED, "提问过于频繁,请稍后再试。");
+        }
 
         ActiveRun previous = activeRuns.remove(sessionId);
         if (previous != null) {
             cancelAndFinalize(previous, "interrupted", null);
         }
 
-        List<LlmGateway.Turn> history = loadHistory(sessionId);
-        messageRepo.save(newMessage(sessionId, MessageRole.USER, request.content()));
-        ChatMessage shell = messageRepo.save(newMessage(sessionId, MessageRole.ASSISTANT, ""));
-        touchTitleIfBlank(sessionId, request.content());
-
-        SseEmitter emitter = new SseEmitter(0L);
-        send(emitter, "meta", new ChatMetaEvent(shell.getId(), sessionId));
-
-        Tier tier = Tier.STANDARD;
-        String system = buildSystemPrompt();
-
-        List<AgentTool> tools = props.getTools().isExposeInChat()
-                ? toolRegistry.byScope(ScopeKind.TEACHER) : List.of();
-        ToolContext toolContext = ToolContext.teacher(teacherAccountId, sessionId, tier);
-
-        ActiveRun run = new ActiveRun(sessionId, shell.getId(), emitter);
-        activeRuns.put(sessionId, run);
-        emitter.onCompletion(() -> activeRuns.remove(sessionId, run));
-        emitter.onTimeout(() -> cancelAndFinalize(run, "stop", null));
-        emitter.onError(t -> cancelAndFinalize(run, "stop", t));
-
-        LlmGateway.StreamRequest llmReq =
-                new LlmGateway.StreamRequest(system, history, request.content(), tier, null, tools, toolContext);
-        run.handle = llmGateway.stream(llmReq, new LlmGateway.StreamSink() {
-            @Override public void onDelta(String text) {
-                if (run.finished.get()) return;
-                run.buffer.append(text);
-                send(emitter, "delta", new ChatDeltaEvent(text));
-            }
-            @Override public void onToolEvent(String name, String status, String label) {
-                if (run.finished.get()) return;
-                send(emitter, "tool", new ChatToolEvent(name, status, label));
-            }
-            @Override public void onComplete(String finishReason) {
-                finishRun(run, finishReason, null);
-            }
-            @Override public void onError(Throwable error) {
-                finishRun(run, "stop", error);
-            }
-        });
-
-        ScheduledFuture<?> hb = heartbeat.scheduleAtFixedRate(
-                () -> send(emitter, "ping", "ping"), HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
-        run.heartbeat = hb;
-        if (run.finished.get()) {
-            hb.cancel(true);
+        // 全局 LLM 流并发舱壁(与学生端共享配额):满载快速失败
+        if (!bulkhead.tryAcquire()) {
+            throw new BusinessException(ErrorCode.RATE_LIMITED, "当前对话并发已满,请稍后再试。");
         }
-        return emitter;
+
+        ActiveRun run = null;
+        boolean started = false;
+        try {
+            List<LlmGateway.Turn> history = loadHistory(sessionId);
+            messageRepo.save(newMessage(sessionId, MessageRole.USER, request.content()));
+            ChatMessage shell = messageRepo.save(newMessage(sessionId, MessageRole.ASSISTANT, ""));
+            touchTitleIfBlank(sessionId, request.content());
+
+            SseEmitter emitter = new SseEmitter(props.getResilience().getSse().getHardTimeoutMillis());
+            send(emitter, "meta", new ChatMetaEvent(shell.getId(), sessionId));
+
+            Tier tier = Tier.STANDARD;
+            String system = buildSystemPrompt();
+
+            List<AgentTool> tools = props.getTools().isExposeInChat()
+                    ? toolRegistry.byScope(ScopeKind.TEACHER) : List.of();
+            ToolContext toolContext = ToolContext.teacher(teacherAccountId, sessionId, tier);
+
+            run = new ActiveRun(sessionId, shell.getId(), emitter);
+            run.release = bulkhead::release;
+            final ActiveRun r = run;
+            activeRuns.put(sessionId, run);
+            emitter.onCompletion(() -> activeRuns.remove(sessionId, r));
+            emitter.onTimeout(() -> cancelAndFinalize(r, "stop", null));
+            emitter.onError(t -> cancelAndFinalize(r, "stop", t));
+
+            LlmGateway.StreamRequest llmReq =
+                    new LlmGateway.StreamRequest(system, history, request.content(), tier, null, tools, toolContext);
+            r.handle = llmGateway.stream(llmReq, new LlmGateway.StreamSink() {
+                @Override public void onDelta(String text) {
+                    if (r.finished.get()) return;
+                    r.buffer.append(text);
+                    send(emitter, "delta", new ChatDeltaEvent(text));
+                }
+                @Override public void onToolEvent(String name, String status, String label) {
+                    if (r.finished.get()) return;
+                    send(emitter, "tool", new ChatToolEvent(name, status, label));
+                }
+                @Override public void onComplete(String finishReason) {
+                    finishRun(r, finishReason, null);
+                }
+                @Override public void onError(Throwable error) {
+                    finishRun(r, "stop", error);
+                }
+            });
+            started = true;
+
+            ScheduledFuture<?> hb = heartbeat.scheduleAtFixedRate(
+                    () -> send(emitter, "ping", "ping"), HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
+            r.heartbeat = hb;
+            if (r.finished.get()) {
+                hb.cancel(true);
+            }
+            return emitter;
+        } catch (RuntimeException e) {
+            if (!started) {
+                if (run != null) {
+                    activeRuns.remove(sessionId, run);
+                    run.releaseBulkhead();
+                } else {
+                    bulkhead.release();
+                }
+            }
+            throw e;
+        }
     }
 
     // 收尾
@@ -183,6 +213,7 @@ public class TeacherChatServiceImpl implements TeacherChatService {
             run.heartbeat.cancel(true);
         }
         activeRuns.remove(run.sessionId, run);
+        run.releaseBulkhead();   // 归还全局并发许可(幂等)
 
         try {
             messageRepo.findById(run.assistantMessageId).ifPresent(m -> {
@@ -291,11 +322,21 @@ public class TeacherChatServiceImpl implements TeacherChatService {
         final AtomicBoolean finished = new AtomicBoolean(false);
         volatile LlmGateway.StreamHandle handle;
         volatile ScheduledFuture<?> heartbeat;
+        volatile Runnable release;       // 释放舱壁许可;null 表示未占用
+        private final AtomicBoolean released = new AtomicBoolean(false);
 
         ActiveRun(UUID sessionId, UUID assistantMessageId, SseEmitter emitter) {
             this.sessionId = sessionId;
             this.assistantMessageId = assistantMessageId;
             this.emitter = emitter;
+        }
+
+        /** 归还舱壁许可,至多一次 */
+        void releaseBulkhead() {
+            Runnable r = release;
+            if (r != null && released.compareAndSet(false, true)) {
+                r.run();
+            }
         }
     }
 }
