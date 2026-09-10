@@ -59,4 +59,7 @@ public interface LessonRepository extends JpaRepository<Lesson, UUID>, JpaSpecif
 
     /** 班级归属校验:该 classCode 下有本教师课程 */
     boolean existsByClassCodeAndTeacherId(String classCode, UUID teacherId);
+
+    /** 按状态计数(运维业务量:课程各状态量) */
+    long countByStatus(LessonStatus status);
 }
