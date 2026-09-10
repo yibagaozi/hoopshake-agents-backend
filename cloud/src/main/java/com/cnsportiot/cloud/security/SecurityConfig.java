@@ -49,7 +49,7 @@ public class SecurityConfig {
                     "/api/auth/register",
                     "/api/auth/activate").permitAll()
                 .requestMatchers("/api/parent/**").permitAll()   // 由 Controller 统一返回 501
-                .requestMatchers("/actuator/health", "/error").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info", "/actuator/prometheus", "/error").permitAll()
                 .requestMatchers("/api/ingest/**").permitAll()   // 由 ServiceTokenFilter 校验
                 .anyRequest().authenticated())
             .exceptionHandling(ex -> ex

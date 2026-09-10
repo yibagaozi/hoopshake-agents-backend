@@ -78,4 +78,13 @@ public final class CircuitBreaker {
     public synchronized State state() {
         return state;
     }
+
+    /** 数值化状态供指标 gauge:0=CLOSED,1=HALF_OPEN,2=OPEN */
+    public synchronized int stateCode() {
+        return switch (state) {
+            case CLOSED -> 0;
+            case HALF_OPEN -> 1;
+            case OPEN -> 2;
+        };
+    }
 }

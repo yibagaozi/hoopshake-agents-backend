@@ -10,6 +10,9 @@ import com.cnsportiot.cloud.harness.llm.RetryFallback;
 import com.cnsportiot.cloud.harness.llm.Sleeper;
 import com.cnsportiot.cloud.harness.llm.TokenBudget;
 import com.cnsportiot.cloud.harness.llm.TransientErrors;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -52,7 +55,8 @@ public class SpringAiLlmGateway implements LlmGateway {
             });
 
     public SpringAiLlmGateway(ChatModel chatModel, AgentProperties props,
-                              SpringAiToolCallbackFactory toolCallbackFactory, TokenBudget tokenBudget) {
+                              SpringAiToolCallbackFactory toolCallbackFactory, TokenBudget tokenBudget,
+                              ObjectProvider<MeterRegistry> meterRegistry) {
         this.chatClient = ChatClient.create(chatModel);
         this.props = props;
         this.toolCallbackFactory = toolCallbackFactory;
@@ -63,6 +67,12 @@ public class SpringAiLlmGateway implements LlmGateway {
         this.breaker = r.getCircuit().isEnabled()
                 ? new CircuitBreaker(r.getCircuit().getFailureThreshold(), r.getCircuit().getOpenMillis())
                 : null;
+        // 熔断状态指标(0=CLOSED,1=HALF_OPEN,2=OPEN),供 /actuator/prometheus 告警
+        MeterRegistry reg = meterRegistry.getIfAvailable();
+        if (reg != null && breaker != null) {
+            Gauge.builder("hoopshake.llm.circuit.state", breaker, CircuitBreaker::stateCode)
+                    .description("LLM circuit breaker state: 0=closed,1=half-open,2=open").register(reg);
+        }
     }
 
     @jakarta.annotation.PreDestroy
@@ -130,7 +140,7 @@ public class SpringAiLlmGateway implements LlmGateway {
                             state.emitted.set(true);
                             sink.onToolEvent(name, status, label);
                         });
-                req = req.toolCallbacks(callbacks);
+                req = req.tools((Object[]) callbacks.toArray(new ToolCallback[0]));
             }
 
             d = req.stream().content().subscribe(
