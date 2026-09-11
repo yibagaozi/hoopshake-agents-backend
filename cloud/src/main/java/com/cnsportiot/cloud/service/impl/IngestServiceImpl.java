@@ -17,7 +17,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -31,6 +34,7 @@ public class IngestServiceImpl implements IngestService {
     private final ReidGalleryRepository reidGalleryRepository;
     private final StudentRepository studentRepository;
     private final LessonEnrollmentRepository lessonEnrollmentRepository;
+    private final SessionAggregateRepository sessionAggregateRepository;
 
     @Override
     @Transactional
@@ -116,9 +120,57 @@ public class IngestServiceImpl implements IngestService {
             }
         }
 
+        // L2 派生:重算本批触及的 (student, action) 的 session_aggregate(见 Gap-1)。
+        deriveAggregates(request.sessionId(), request.items());
+
         log.info("ActionClip 批量入库 sessionId={} accepted={} duplicated={} rejected={}",
                 request.sessionId(), accepted, duplicated, rejected.size());
         return new BatchAckResponse(accepted, duplicated, rejected);
+    }
+
+    /**
+     * 从已入库的片段重算 session_aggregate(幂等 upsert)。逐 (student, action) 组独立 try/catch,
+     * 单组失败不影响其它组与已入库片段。派生规则见 {@link SessionAggregateDeriver}。
+     */
+    private void deriveAggregates(UUID sessionId, List<ActionClipBatchRequest.ClipItem> items) {
+        record Key(UUID studentId, String actionType) {}
+        Set<Key> keys = new LinkedHashSet<>();
+        for (var it : items) {
+            keys.add(new Key(it.studentId(), it.actionType()));
+        }
+        for (Key k : keys) {
+            try {
+                List<ActionClip> all = actionClipRepository
+                        .findBySessionIdAndStudentIdOrderByClipIndex(sessionId, k.studentId());
+                if (all == null || all.isEmpty()) {
+                    continue;
+                }
+                List<SessionAggregateDeriver.ClipInput> inputs = all.stream()
+                        .filter(c -> k.actionType() != null && k.actionType().equalsIgnoreCase(c.getActionType()))
+                        .map(c -> new SessionAggregateDeriver.ClipInput(
+                                c.getShotMade(),
+                                SessionAggregateDeriver.extractReleaseAngles(c.getScore()),
+                                SessionAggregateDeriver.extractAnglesSource(c.getScore())))
+                        .toList();
+                if (inputs.isEmpty()) {
+                    continue;
+                }
+                Map<String, Object> stats = SessionAggregateDeriver.derive(inputs);
+                SessionAggregate agg = sessionAggregateRepository
+                        .findBySessionIdAndStudentIdAndActionType(sessionId, k.studentId(), k.actionType())
+                        .orElseGet(() -> SessionAggregate.builder()
+                                .sessionId(sessionId)
+                                .studentId(k.studentId())
+                                .actionType(k.actionType())
+                                .stats(stats)
+                                .build());
+                agg.setStats(stats);
+                sessionAggregateRepository.save(agg);
+            } catch (RuntimeException e) {
+                log.warn("派生 session_aggregate 失败 session={} student={} action={}: {}",
+                        sessionId, k.studentId(), k.actionType(), e.getMessage());
+            }
+        }
     }
 
     @Override
