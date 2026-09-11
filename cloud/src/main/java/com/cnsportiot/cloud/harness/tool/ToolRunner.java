@@ -6,6 +6,7 @@ import com.cnsportiot.cloud.harness.hook.HookChain;
 import com.cnsportiot.contracts.error.BusinessException;
 import com.cnsportiot.contracts.error.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
@@ -26,7 +27,7 @@ public class ToolRunner {
     private final HookChain hooks;
     private final AuditService audit;
 
-    public ToolRunner(ToolRegistry registry, HookChain hooks, AuditService audit) {
+    public ToolRunner(@Lazy ToolRegistry registry, HookChain hooks, AuditService audit) {
         this.registry = registry;
         this.hooks = hooks;
         this.audit = audit;

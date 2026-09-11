@@ -42,6 +42,11 @@ public class StudentScopeGuardHook implements PreToolUseHook {
 
     @Override
     public void before(ToolInvocation inv) {
+
+        if (inv.context().kind() != com.cnsportiot.cloud.harness.tool.ScopeKind.STUDENT) {
+            return;   // 教师侧由 TeacherScopeGuardHook 处理,本闸只管学生自绑定
+        }
+
         UUID me = inv.context().studentId();
         Map<String, Object> args = inv.args();
 

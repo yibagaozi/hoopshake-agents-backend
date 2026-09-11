@@ -1,6 +1,7 @@
 package com.cnsportiot.cloud.repository;
 
 import com.cnsportiot.cloud.domain.entity.Account;
+import com.cnsportiot.cloud.domain.enums.Role;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
@@ -22,4 +23,7 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     boolean existsByEmail(String email);
 
     boolean existsByPhone(String phone);
+
+    /** 按角色计数(运维业务量:教师数) */
+    long countByRole(Role role);
 }

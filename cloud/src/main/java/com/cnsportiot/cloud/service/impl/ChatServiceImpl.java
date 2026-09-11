@@ -12,9 +12,12 @@ import com.cnsportiot.cloud.harness.llm.LlmGateway;
 import com.cnsportiot.cloud.harness.llm.Tier;
 import com.cnsportiot.cloud.harness.rag.RagStore;
 import com.cnsportiot.cloud.harness.rag.Snippet;
+import com.cnsportiot.cloud.harness.ratelimit.LlmStreamBulkhead;
+import com.cnsportiot.cloud.harness.ratelimit.TokenBucketRateLimiter;
 import com.cnsportiot.cloud.harness.router.RouteDecision;
 import com.cnsportiot.cloud.harness.router.RouterService;
 import com.cnsportiot.cloud.harness.tool.AgentTool;
+import com.cnsportiot.cloud.harness.tool.ScopeKind;
 import com.cnsportiot.cloud.harness.tool.ToolContext;
 import com.cnsportiot.cloud.harness.tool.ToolRegistry;
 import com.cnsportiot.cloud.repository.ChatMessageRepository;
@@ -59,6 +62,8 @@ public class ChatServiceImpl implements ChatService {
     private final ToolRegistry toolRegistry;
     private final RouterService routerService;
     private final AgentProperties props;
+    private final TokenBucketRateLimiter askRateLimiter;
+    private final LlmStreamBulkhead bulkhead;
 
     private final ScheduledExecutorService heartbeat = Executors.newScheduledThreadPool(2, r -> {
         Thread t = new Thread(r, "chat-sse-heartbeat");
@@ -73,6 +78,7 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public ChatSessionResponse createSession(CreateChatSessionRequest request, UUID studentId) {
+        requireStudentIdentity(studentId);
         ChatSession session = ChatSession.create(studentId, null,
                 request.title() == null || request.title().isBlank() ? null : request.title().strip());
         session = sessionRepo.save(session);
@@ -81,6 +87,7 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public PageResponse<ChatSessionResponse> listSessions(UUID studentId, int page, int size) {
+        requireStudentIdentity(studentId);
         var pageable = PageResponses.toPageable(page, size,
                 org.springframework.data.domain.Sort.by("updatedAt").descending());
         return PageResponses.from(sessionRepo.findByStudentIdAndDeletedFalse(studentId, pageable), this::toSessionDto);
@@ -117,81 +124,124 @@ public class ChatServiceImpl implements ChatService {
             throw new BusinessException(ErrorCode.LLM_UNAVAILABLE);
         }
 
+        // 按账号限流:对话是最贵端点,拒绝在建任何 DB 记录之前
+        if (props.getResilience().getRateLimit().isEnabled() && !askRateLimiter.tryAcquire(accountId)) {
+            throw new BusinessException(ErrorCode.RATE_LIMITED, "提问过于频繁,请稍后再试。");
+        }
+
         // 已有进行中的生成 → 先收尾旧的(中断)
         ActiveRun previous = activeRuns.remove(sessionId);
         if (previous != null) {
             cancelAndFinalize(previous, "interrupted", null);
         }
 
-        // 上下文窗口(取本轮新消息之前的历史)
-        List<LlmGateway.Turn> history = loadHistory(sessionId);
-
-        // 落 USER + ASSISTANT 空壳
-        messageRepo.save(newMessage(sessionId, MessageRole.USER, request.content()));
-        ChatMessage shell = messageRepo.save(newMessage(sessionId, MessageRole.ASSISTANT, ""));
-        touchTitleIfBlank(sessionId, request.content());
-
-        SseEmitter emitter = new SseEmitter(0L);
-        send(emitter, "meta", new ChatMetaEvent(shell.getId(), sessionId));
-
-        // 路由:规则优先,疑难时 FAST 档意图分类。锚定训练的存在性校验属算法侧,
-        // 本里程碑隔离,仅用其存在与否影响路由(anchored → TRAINING_REVIEW)
-        boolean anchored = request.trainingSessionId() != null;
-        RouteDecision decision = routerService.route(request.content(), anchored);
-        Tier tier = decision.tier();
-
-        List<Snippet> ragHits = decision.useRag()
-                ? retrieve(request.content(), decision.maxInjected())
-                : List.of();
-        // 调试可视:把本轮注入的召回片段推给前端(生产前端可忽略此事件)
-        send(emitter, "rag", new ChatRagEvent(ragHits.stream()
-                .map(s -> new RagHit(s.docId(), s.sectionTitle(), s.score())).toList()));
-        String system = buildSystemPrompt(ragHits, decision);
-
-        ActiveRun run = new ActiveRun(sessionId, shell.getId(), emitter);
-        run.decision = decision;
-        run.ragHits = ragHits;
-        activeRuns.put(sessionId, run);
-
-        emitter.onCompletion(() -> activeRuns.remove(sessionId, run));
-        emitter.onTimeout(() -> cancelAndFinalize(run, "stop", null));
-        emitter.onError(t -> cancelAndFinalize(run, "stop", t));
-
-        // 工具:全局开关 + 本轮路由都允许才开放;权威身份从 token 而来,不由模型选择
-        List<AgentTool> tools = (props.getTools().isExposeInChat() && decision.exposeTools())
-                ? toolRegistry.all() : List.of();
-        ToolContext toolContext = new ToolContext(accountId, studentId, sessionId, tier);
-
-        LlmGateway.StreamRequest llmReq =
-                new LlmGateway.StreamRequest(system, history, request.content(), tier, null, tools, toolContext);
-        run.handle = llmGateway.stream(llmReq, new LlmGateway.StreamSink() {
-            @Override public void onDelta(String text) {
-                if (run.finished.get()) return;
-                run.buffer.append(text);
-                send(emitter, "delta", new ChatDeltaEvent(text));
-            }
-            @Override public void onToolEvent(String name, String status, String label) {
-                if (run.finished.get()) return;
-                if (!"running".equals(status)) {   // 只记终态,避免 running+ok 重复
-                    run.toolTrace.add(Map.of("name", name, "status", status));
-                }
-                send(emitter, "tool", new ChatToolEvent(name, status, label));
-            }
-            @Override public void onComplete(String finishReason) {
-                finishRun(run, finishReason, null);
-            }
-            @Override public void onError(Throwable error) {
-                finishRun(run, "stop", error);
-            }
-        });
-
-        ScheduledFuture<?> hb = heartbeat.scheduleAtFixedRate(
-                () -> send(emitter, "ping", "ping"), HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
-        run.heartbeat = hb;
-        if (run.finished.get()) {   // 同步收尾(如禁用/立即失败)已发生
-            hb.cancel(true);
+        // 全局 LLM 流并发舱壁:满载快速失败(42900),防一次尖峰把内存/提供方打爆
+        if (!bulkhead.tryAcquire()) {
+            throw new BusinessException(ErrorCode.RATE_LIMITED, "当前对话并发已满,请稍后再试。");
         }
-        return emitter;
+        ActiveRun run = null;
+        boolean started = false;
+
+        try {
+            // 上下文窗口(取本轮新消息之前的历史)
+            List<LlmGateway.Turn> history = loadHistory(sessionId);
+
+            // 落 USER + ASSISTANT 空壳
+            messageRepo.save(newMessage(sessionId, MessageRole.USER, request.content()));
+            ChatMessage shell = messageRepo.save(newMessage(sessionId, MessageRole.ASSISTANT, ""));
+            touchTitleIfBlank(sessionId, request.content());
+
+            // SSE 硬上限超时:防僵尸流;到点走 onTimeout 收尾
+            SseEmitter emitter = new SseEmitter(props.getResilience().getSse().getHardTimeoutMillis());
+            send(emitter, "meta", new ChatMetaEvent(shell.getId(), sessionId));
+
+            // 路由:规则优先,疑难时 FAST 档意图分类。锚定训练的存在性校验属算法侧,
+            // 本里程碑隔离,仅用其存在与否影响路由(anchored → TRAINING_REVIEW)
+            boolean anchored = request.trainingSessionId() != null;
+            RouteDecision decision = routerService.route(request.content(), anchored);
+            Tier tier = decision.tier();
+
+            // RAG 检索:向量库故障不打断对话,降级为无检索
+            boolean ragDegraded = false;
+            List<Snippet> ragHits;
+            if (decision.useRag()) {
+                try {
+                    ragHits = retrieve(request.content(), decision.maxInjected());
+                } catch (RuntimeException e) {
+                    log.warn("RAG 检索失败,降级为无检索 sessionId={}: {}", sessionId, e.toString());
+                    ragHits = List.of();
+                    ragDegraded = true;
+                }
+            } else {
+                ragHits = List.of();
+            }
+
+            // 调试可视:把本轮注入的召回片段推给前端(生产前端可忽略此事件)
+            send(emitter, "rag", new ChatRagEvent(ragHits.stream()
+                    .map(s -> new RagHit(s.docId(), s.sectionTitle(), s.score())).toList()));
+            String system = buildSystemPrompt(ragHits, decision);
+
+            run = new ActiveRun(sessionId, shell.getId(), emitter);
+            run.decision = decision;
+            run.ragHits = ragHits;
+            run.ragDegraded = ragDegraded;
+            run.userQuestion = request.content();
+            run.release = bulkhead::release;   // 舱壁许可随本次 run 收尾时释放(finishRun 内幂等)
+            final ActiveRun r = run;
+            activeRuns.put(sessionId, run);
+
+            emitter.onCompletion(() -> activeRuns.remove(sessionId, r));
+            emitter.onTimeout(() -> cancelAndFinalize(r, "stop", null));
+            emitter.onError(t -> cancelAndFinalize(r, "stop", t));
+
+            // 工具:全局开关 + 本轮路由都允许才开放;权威身份从 token 而来,不由模型选择
+            List<AgentTool> tools = (props.getTools().isExposeInChat() && decision.exposeTools())
+                    ? toolRegistry.byScope(ScopeKind.STUDENT) : List.of();
+            ToolContext toolContext = ToolContext.student(accountId, studentId, sessionId, tier);
+
+            LlmGateway.StreamRequest llmReq =
+                    new LlmGateway.StreamRequest(system, history, request.content(), tier, null, tools, toolContext);
+            r.handle = llmGateway.stream(llmReq, new LlmGateway.StreamSink() {
+                @Override public void onDelta(String text) {
+                    if (r.finished.get()) return;
+                    r.buffer.append(text);
+                    send(emitter, "delta", new ChatDeltaEvent(text));
+                }
+                @Override public void onToolEvent(String name, String status, String label) {
+                    if (r.finished.get()) return;
+                    if (!"running".equals(status)) {   // 只记终态,避免 running+ok 重复
+                        r.toolTrace.add(Map.of("name", name, "status", status));
+                    }
+                    send(emitter, "tool", new ChatToolEvent(name, status, label));
+                }
+                @Override public void onComplete(String finishReason) {
+                    finishRun(r, finishReason, null);
+                }
+                @Override public void onError(Throwable error) {
+                    finishRun(r, "stop", error);
+                }
+            });
+            started = true;   // 已交给 gateway:此后收尾(含舱壁释放)由 finishRun 负责
+
+            ScheduledFuture<?> hb = heartbeat.scheduleAtFixedRate(
+                    () -> send(emitter, "ping", "ping"), HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
+            r.heartbeat = hb;
+            if (r.finished.get()) {   // 同步收尾(如禁用/立即失败)已发生
+                hb.cancel(true);
+            }
+            return emitter;
+        } catch (RuntimeException e) {
+            // 交给 gateway 之前的同步失败:释放舱壁许可并摘除,避免许可/句柄泄漏
+            if (!started) {
+                if (run != null) {
+                    activeRuns.remove(sessionId, run);
+                    run.releaseBulkhead();
+                } else {
+                    bulkhead.release();
+                }
+            }
+            throw e;
+        }
     }
 
     @Override
@@ -222,6 +272,15 @@ public class ChatServiceImpl implements ChatService {
             run.heartbeat.cancel(true);
         }
         activeRuns.remove(run.sessionId, run);
+        run.releaseBulkhead();   // 归还全局并发许可(幂等,只放一次)
+
+        // 空回答兜底:正常结束但模型没产出任何正文,给一句兜底话术,前端不空白
+        if (error == null && run.buffer.length() == 0 && !"interrupted".equals(reason)) {
+            String fb = "抱歉,这次没能生成有效回答。请换个说法再问,或稍后重试。";
+            run.buffer.append(fb);
+            run.emptyFallback = true;
+            send(run.emitter, "delta", new ChatDeltaEvent(fb));
+        }
 
         try {
             messageRepo.findById(run.assistantMessageId).ifPresent(m -> {
@@ -239,10 +298,54 @@ public class ChatServiceImpl implements ChatService {
                     "code", ErrorCode.LLM_UNAVAILABLE.code(),
                     "message", "AI 服务暂不可用,请稍后重试"));
         } else {
+            maybeSuggestTeacherAssist(run);   // 多轮未解决推 assist 事件(best-effort,先于 done)
             send(run.emitter, "done",
                     new ChatDoneEvent(run.assistantMessageId, reason, null, List.of()));
         }
         try { run.emitter.complete(); } catch (RuntimeException ignore) { }
+    }
+
+    /**
+     * 「请求教师协助」触发判定(混合:硬门槛轮次 + FAST 档 LLM 确认)。
+     * 达到 {@code assist.minRounds} 轮学生提问后,用 FAST 档判定「疑惑是否仍未解决」;
+     * 判定为未解决则 SSE 推 {@code assist} 事件。best-effort:任何异常都不影响主流程
+     */
+    private void maybeSuggestTeacherAssist(ActiveRun run) {
+        try {
+            var cfg = props.getAssist();
+            if (!cfg.isEnabled() || !llmGateway.isEnabled()) {
+                return;
+            }
+            long userTurns = messageRepo.countByChatSessionIdAndRole(run.sessionId, MessageRole.USER);
+            if (userTurns < cfg.getMinRounds()) {
+                return;
+            }
+            String question = run.userQuestion == null ? "" : run.userQuestion.strip();
+            String answer = run.buffer.toString().strip();
+            if (question.isBlank()) {
+                return;
+            }
+            String system = "你是对话质量判定器。学生已就同一主题连续多轮提问。"
+                    + "结合最新问题与助教回答,判断学生的疑惑是否仍未得到解决、需要真人教师介入。"
+                    + "只输出一个词:YES(仍未解决,建议找教师)或 NO(已解决或无需教师)。";
+            String user = "【学生最新问题】\n" + truncate(question, 500)
+                    + "\n\n【助教回答】\n" + truncate(answer, 800)
+                    + "\n\n仍未解决吗?只回 YES 或 NO。";
+            boolean unresolved = llmGateway
+                    .complete(new LlmGateway.CompletionRequest(system, user, Tier.FAST, 8))
+                    .map(s -> s.toUpperCase().contains("YES"))
+                    .orElse(false);
+            if (unresolved) {
+                send(run.emitter, "assist",
+                        new ChatAssistEvent(true, question, "多轮未解决,建议请求教师协助"));
+            }
+        } catch (RuntimeException e) {
+            log.debug("协助触发判定失败(忽略) sessionId={}: {}", run.sessionId, e.toString());
+        }
+    }
+
+    private static String truncate(String s, int max) {
+        return s.length() <= max ? s : s.substring(0, max);
     }
 
     // 辅助
@@ -302,6 +405,36 @@ public class ChatServiceImpl implements ChatService {
         if (error != null) {
             detail.put("error", true);
         }
+
+        // 在线质量信号(供生产采样 / 异步 LLM 评审 / 仪表盘,见 docs/agent/agent-eval-and-resilience.md)
+        Map<String, Object> quality = new LinkedHashMap<>();
+        quality.put("ragHitCount", run.ragHits.size());
+        double maxScore = 0.0;
+        for (Snippet s : run.ragHits) {
+            if (s.score() != null && s.score() > maxScore) {
+                maxScore = s.score();
+            }
+        }
+        quality.put("ragMaxScore", run.ragHits.isEmpty() ? null : Math.round(maxScore * 1000.0) / 1000.0);
+        int toolOk = 0, toolDeny = 0, toolError = 0;
+        for (Map<String, Object> t : run.toolTrace) {
+            String st = String.valueOf(t.get("status")).toLowerCase();
+            if (st.contains("deny")) {
+                toolDeny++;
+            } else if (st.contains("error")) {
+                toolError++;
+            } else {
+                toolOk++;
+            }
+        }
+        quality.put("toolOk", toolOk);
+        quality.put("toolDeny", toolDeny);
+        quality.put("toolError", toolError);
+        quality.put("finishReason", reason);
+        quality.put("answerChars", run.buffer.length());
+        quality.put("degraded", run.ragDegraded || run.emptyFallback || error != null);
+        detail.put("quality", quality);
+
         return detail;
     }
 
@@ -337,12 +470,21 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private ChatSession requireOwnedSession(UUID sessionId, UUID studentId) {
+        requireStudentIdentity(studentId);
         ChatSession session = sessionRepo.findById(sessionId)
                 .orElseThrow(() -> BusinessException.notFound("会话不存在"));
         if (session.isDeleted() || !session.getStudentId().equals(studentId)) {
             throw BusinessException.dataScopeDenied();   // 40301(已删视同不可见)
         }
         return session;
+    }
+
+    /** 学生对话端点要求调用者具备 studentId 身份 */
+    private void requireStudentIdentity(UUID studentId) {
+        if (studentId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "当前账号无 studentId(非学生身份),无法使用学生对话端点。请使用学生账号登录,或为该账号绑定 Student 后重新登录。");
+        }
     }
 
     private ChatSessionResponse toSessionDto(ChatSession s) {
@@ -378,11 +520,24 @@ public class ChatServiceImpl implements ChatService {
         volatile ScheduledFuture<?> heartbeat;
         volatile RouteDecision decision;
         volatile List<Snippet> ragHits = List.of();
+        volatile String userQuestion;
+        volatile boolean ragDegraded;
+        volatile boolean emptyFallback;
+        volatile Runnable release;       // 释放舱壁许可;null 表示未占用
+        private final AtomicBoolean released = new AtomicBoolean(false);
 
         ActiveRun(UUID sessionId, UUID assistantMessageId, SseEmitter emitter) {
             this.sessionId = sessionId;
             this.assistantMessageId = assistantMessageId;
             this.emitter = emitter;
+        }
+
+        /** 归还舱壁许可,至多一次(收尾/异常路径均可调用) */
+        void releaseBulkhead() {
+            Runnable r = release;
+            if (r != null && released.compareAndSet(false, true)) {
+                r.run();
+            }
         }
     }
 }

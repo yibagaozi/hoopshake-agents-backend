@@ -28,11 +28,6 @@ public final class StudentDataDtos {
     /** 本周训练 / 出手 / 命中率 */
     public record WeeklyStats(long sessions, long clips, BigDecimal madeRate) {}
 
-    /** 本阶段重点检查点 + 较上周改善(百分点) */
-    public record FocusCheckpoint(String checkpointId, String label, BigDecimal progress, BigDecimal improvementPct) {}
-
-    public record ActionTypeStat(String actionType, long clipCount, BigDecimal madeRate) {}
-
     /** 4.2 训练课列表 */
     public record SessionBriefResponse(
             UUID sessionId,
@@ -91,6 +86,49 @@ public final class StudentDataDtos {
     /** 4.7 进步趋势 */
     public record ProgressTrendResponse(String actionType, String metric, List<TrendPoint> points) {}
 
-    public record TrendPoint(UUID sessionId, OffsetDateTime recordedAt, BigDecimal value) {}
+    public record OverviewResponse(
+            UUID studentId, String displayName, int totalSessions, int totalClips,
+            OffsetDateTime lastSessionAt, Weekly weekly, FocusCheckpoint focusCheckpoint,
+            List<ActionTypeStat> actionTypeStats, List<SessionBrief> recentSessions) {}
+
+    public record Weekly(int sessions, int clips, Double madeRate) {}
+
+    public record FocusCheckpoint(String checkpointId, String label, double progress, double improvementPct) {}
+
+    public record ActionTypeStat(String actionType, int clipCount, Double madeRate) {}
+
+    public record SessionBrief(
+            UUID sessionId, UUID lessonId, String lessonTitle, String status,
+            OffsetDateTime recordedAt, int clipCount, String keyImprovementLabel) {}
+
+    public record SessionDetail(
+            UUID sessionId, UUID lessonId, String lessonTitle, String status, OffsetDateTime recordedAt,
+            int clipCount, List<AggItem> aggregates, int feedbackCount, boolean reportReady) {}
+
+    public record AggItem(String actionType, Object stats) {}
+
+    public record ClipBrief(
+            UUID clipId, UUID sessionId, int clipIndex, String actionType,
+            BigDecimal startMs, BigDecimal endMs, BigDecimal releaseMs,
+            String anchorCamera, String zoneId, Boolean shotMade, Object score) {}
+
+    public record ClipDetail(
+            UUID clipId, UUID sessionId, int clipIndex, String actionType,
+            BigDecimal startMs, BigDecimal endMs, BigDecimal releaseMs,
+            String anchorCamera, String zoneId, Boolean shotMade, Object score,
+            Object phases, Object motionRange, String motionDataUrl) {}
+
+    public record FeedbackItem(
+            UUID feedbackId, UUID clipId, OffsetDateTime occurredAt, BigDecimal timestampMs,
+            String actionType, String checkpointId, String severity, String cueText,
+            Object measured, BigDecimal confidence, String sourceCamera) {}
+
+    public record TrendResponse(String actionType, String metric, List<TrendPoint> points) {}
+
+    public record TrendPoint(UUID sessionId, OffsetDateTime recordedAt, double value) {}
+
+    public record ProfileResponse(
+            UUID studentId, String studentNo, String displayName, String dominantHand,
+            BigDecimal heightCm, BigDecimal legLengthCm, String gradeBand) {}
 }
 

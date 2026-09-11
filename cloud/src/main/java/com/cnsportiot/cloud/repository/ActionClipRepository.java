@@ -3,6 +3,8 @@ package com.cnsportiot.cloud.repository;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -69,4 +71,33 @@ public interface ActionClipRepository extends JpaRepository<ActionClip, UUID> {
     java.math.BigDecimal avgMadeRateBySessionId(@Param("sessionId") UUID sessionId);
 
     boolean existsBySessionIdAndStudentIdAndClipIndex(UUID sessionId, UUID studentId, int clipIndex);
+
+    // 归属校验
+    boolean existsBySessionIdAndStudentId(UUID sessionId, UUID studentId);
+    boolean existsByIdAndStudentId(UUID id, UUID studentId);
+
+    List<ActionClip> findBySessionIdAndStudentIdOrderByClipIndex(UUID sessionId, UUID studentId);
+
+    /** 某学生全部片段(按 clip_index),供参照系构建/兜底 */
+    List<ActionClip> findByStudentIdOrderByClipIndexAsc(UUID studentId);
+
+    /** 最近片段(按会话生成时间倒序,再按 clip_index 倒序) */
+    @Query("SELECT c FROM ActionClip c LEFT JOIN TrainingSession s ON s.id = c.sessionId "
+            + "WHERE c.studentId = :sid ORDER BY s.generatedAt DESC NULLS LAST, c.clipIndex DESC")
+    List<ActionClip> findRecentByStudent(@Param("sid") UUID sid, Pageable pageable);
+
+    /** 某学生最近的会话 id */
+    @Query("SELECT c.sessionId FROM ActionClip c LEFT JOIN TrainingSession s ON s.id = c.sessionId "
+            + "WHERE c.studentId = :sid ORDER BY s.generatedAt DESC NULLS LAST")
+    List<UUID> findRecentSessionIdsByStudent(@Param("sid") UUID sid, Pageable pageable);
+
+    /** 某学生按 action_type 取全部片段 */
+    List<ActionClip> findByStudentIdAndActionTypeOrderByClipIndexAsc(UUID studentId, String actionType);
+
+    // 学生训练数据端点
+    long countBySessionIdAndStudentId(UUID sessionId, UUID studentId);
+
+    Page<ActionClip> findBySessionIdAndStudentId(UUID sessionId, UUID studentId, Pageable pageable);
+
+    Page<ActionClip> findBySessionIdAndStudentIdAndActionType(UUID sessionId, UUID studentId, String actionType, Pageable pageable);
 }

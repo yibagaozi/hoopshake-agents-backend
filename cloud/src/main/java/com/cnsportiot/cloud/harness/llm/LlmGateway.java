@@ -5,6 +5,7 @@ import com.cnsportiot.cloud.harness.tool.ToolContext;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 /** LLM 调用统一收口 */
 public interface LlmGateway {
@@ -20,6 +21,15 @@ public interface LlmGateway {
      * 不可用或失败时返回 {@link Optional#empty()},调用方据此退回规则/兜底,不抛断链
      */
     Optional<String> complete(CompletionRequest request);
+
+    /**
+     * 熔断器状态码(0=CLOSED,1=HALF_OPEN,2=OPEN),供运维只读快照
+     * 默认空(未启用 LLM 或未装熔断);仅 Spring AI 实现在开启熔断时返回
+     */
+    default OptionalInt circuitState() {
+        return OptionalInt.empty();
+    }
+
 
     /** 一次性补全的输入 */
     record CompletionRequest(String system, String user, Tier tier, Integer maxTokens) {}
