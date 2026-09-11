@@ -35,6 +35,27 @@ public final class WsEvents {
         }
     }
 
+    /**
+     * 动作评测采样(CV 上行 → 实时规则引擎输入)。与 {@link ActionFocus}(大屏展示)分离:
+     * 这条只为"逐相位判定"。{@code measured} 是单机位 2D 可算量,如 {@code {"elbow_angle":118,"knee_angle":100}};
+     * 腕屈角需手部关键点,COCO-17 不含,故实时层不评腕角(见 docs/edge/realtime-rule-engine.md)。
+     */
+    public record ActionSample(
+            UUID sessionId,
+            UUID studentId,
+            String displayName,
+            String studentNo,
+            String actionType,
+            String phase,
+            java.util.Map<String, Object> measured,
+            /** high / medium / low */
+            String identityConfidence,
+            Double confidence,
+            String sourceCamera,
+            Double timestampMs,
+            OffsetDateTime occurredAt) {
+    }
+
     /** 当前聚焦的动作,大屏中央区用 */
     public record ActionFocus(
             UUID studentId,

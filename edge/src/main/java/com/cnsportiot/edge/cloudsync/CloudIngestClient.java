@@ -38,7 +38,7 @@ public class CloudIngestClient {
     public List<RosterEntry> fetchRoster(UUID lessonId) {
         try {
             Map<String, Object> envelope = restClient.get()
-                    .uri("/api/ingest/reid/gallery?lessonId={id}", lessonId)
+                    .uri("/api/ingest/gallery/pull?lessonId={id}", lessonId)
                     .retrieve()
                     .body(Map.class);
 
@@ -81,6 +81,74 @@ public class CloudIngestClient {
                     .toBodilessEntity();
         } catch (RestClientException e) {
             throw new BusinessException(EdgeErrorCode.CLOUD_UNREACHABLE, "Session 上报失败");
+        }
+    }
+
+    /**
+     * 即时反馈批量上云({@code POST /api/ingest/feedback},逐条以 eventId 幂等)。
+     * {@code sessionId} 可空(实时时会话可能尚未建全,云端按 timestamp_ms 事后回填 clip)。
+     *
+     * @throws BusinessException CLOUD_UNREACHABLE 网络不可达
+     */
+    public void pushFeedback(UUID sessionId, List<Map<String, Object>> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        if (sessionId != null) {
+            body.put("sessionId", sessionId.toString());
+        }
+        body.put("items", items);
+        try {
+            restClient.post()
+                    .uri("/api/ingest/feedback")
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException e) {
+            throw new BusinessException(EdgeErrorCode.CLOUD_UNREACHABLE, "即时反馈上报失败");
+        }
+    }
+
+    /**
+     * 动作片段批量上云({@code POST /api/ingest/action-clips},以 session+student+clipIndex 幂等)。
+     * 课后批处理产物出云主通道;云端据此派生 session_aggregate。
+     *
+     * @throws BusinessException CLOUD_UNREACHABLE 网络不可达
+     */
+    public void pushActionClips(UUID sessionId, List<Map<String, Object>> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("sessionId", sessionId.toString());
+        body.put("items", items);
+        try {
+            restClient.post()
+                    .uri("/api/ingest/action-clips")
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException e) {
+            throw new BusinessException(EdgeErrorCode.CLOUD_UNREACHABLE, "动作片段上报失败");
+        }
+    }
+
+    /**
+     * ReID gallery 登记({@code POST /api/ingest/gallery/register},敏感操作,云端记 audit_log)。
+     * 注册完成后调用,把 face/body 模型与维度、样本数、storageUri 登记到云端。
+     *
+     * @throws BusinessException CLOUD_UNREACHABLE 网络不可达
+     */
+    public void registerGallery(Map<String, Object> body) {
+        try {
+            restClient.post()
+                    .uri("/api/ingest/gallery/register")
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException e) {
+            throw new BusinessException(EdgeErrorCode.CLOUD_UNREACHABLE, "gallery 登记失败");
         }
     }
 }

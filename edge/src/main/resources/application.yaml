@@ -1,10 +1,12 @@
 server:
   address: 0.0.0.0
-  port: 8080
+  port: 8081
 
 spring:
   application:
     name: edge
+  config:
+    import: optional:classpath:checkpoints.yaml
   jackson:
     default-property-inclusion: non_null
 
@@ -56,8 +58,9 @@ hoopshake:
       pix-fmt: yuv420p
 
     cloud:
-      base-url: https://api.hoopshake.example
-      service-token: ${EDGE_SERVICE_TOKEN}
+      base-url: http://agent.cnsportiot.com/teacher
+      service-token: ${EDGE_SERVICE_TOKEN:default-token}
+
       connect-timeout-millis: 3000
       read-timeout-millis: 10000
 
@@ -70,6 +73,8 @@ hoopshake:
       command:
         - python
         - C:/hoopshake/tools/mock_cv.py
+        - --url
+        - ws://127.0.0.1:8081/internal/cv/stream
         - --pose-hz
         - "10"
         - --persons
