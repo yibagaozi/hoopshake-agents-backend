@@ -58,7 +58,7 @@ hoopshake:
       pix-fmt: yuv420p
 
     cloud:
-      base-url: http://agent.cnsportiot.com/teacher
+      base-url: http://agent.cnsportiot.com
       service-token: ${EDGE_SERVICE_TOKEN:default-token}
 
       connect-timeout-millis: 3000
