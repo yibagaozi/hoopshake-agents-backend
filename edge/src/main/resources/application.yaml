@@ -5,6 +5,8 @@ server:
 spring:
   application:
     name: edge
+  config:
+    import: optional:classpath:checkpoints.yaml
   jackson:
     default-property-inclusion: non_null
 

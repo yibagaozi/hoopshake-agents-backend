@@ -11,6 +11,12 @@ public enum WsEventType {
     /** 当前聚焦的学生与动作 */
     ACTION_FOCUS("actionFocus", true, Set.of(WsRole.DISPLAY, WsRole.CONSOLE)),
 
+    /**
+     * 动作评测采样(CV 上行):某学生某相位的 2D 可算量,喂实时规则引擎。
+     * 仅入站、不直接扇出 UI(targets 为空 → WsHub 不广播),由 {@code RuleEngineListener} 消费。
+     */
+    ACTION_SAMPLE("actionSample", false, Set.of()),
+
     /** 即时反馈提示 */
     CUE("cue", false, Set.of(WsRole.DISPLAY, WsRole.CONSOLE)),
 

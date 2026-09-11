@@ -1,0 +1,113 @@
+# 实时 2D 规则引擎 —— 检查点词表(起步集)
+# 见 docs/edge/realtime-rule-engine.md。经 application.yaml 的 spring.config.import 引入,绑定到 CheckpointProperties。
+# 口径与算法侧 configs/actions/*.yaml 一致,但这里是"单机位 2D 实时"变体:
+#   - 只放 COCO-17 可算的量(肘/膝角、出手高度、躯干前倾),不放需手部关键点的腕屈角;
+#   - metric 名须与 CV 上行 actionSample.measured 的键一致;
+#   - severity 仅 MINOR/MAJOR(越界);正反馈用 cue-ok 触发 POSITIVE。
+
+hoopshake:
+  edge:
+    rules:
+      enabled: true
+      default-cooldown-ms: 8000
+      min-confidence: 0.35
+      max-buffer-items: 500
+      flush-interval-ms: 2000
+
+      checkpoints:
+        # ---- 罚篮 free_throw ----
+        - id: ft.load.knee
+          action-type: free_throw
+          phase: load
+          metric: knee_angle
+          min: 110
+          max: 140
+          unit: deg
+          severity: MINOR
+          checkpoint-label: 蓄力屈膝
+          cue-low: 屈膝不够,再下沉一点蓄力
+          cue-high: 蹲得偏低,注意出手节奏
+
+        - id: ft.release.elbow
+          action-type: free_throw
+          phase: release
+          metric: elbow_angle
+          min: 160
+          max: 180
+          unit: deg
+          severity: MAJOR
+          checkpoint-label: 出手肘伸展
+          cue-low: 出手时肘没伸直,向上送到位
+          cue-ok: 出手伸展到位,保持
+          cooldown-ms: 6000
+
+        - id: ft.release.height
+          action-type: free_throw
+          phase: release
+          metric: release_height_m
+          min: 2.0
+          max: 2.8
+          unit: m
+          severity: MINOR
+          checkpoint-label: 出手高度
+          cue-low: 出手点偏低,抬高释放点
+
+        - id: ft.follow.elbow
+          action-type: free_throw
+          phase: follow_through
+          metric: elbow_angle
+          min: 150
+          max: 180
+          unit: deg
+          severity: MINOR
+          checkpoint-label: 跟随伸展
+          cue-low: 跟随不足,出手后手臂充分前送
+
+        # ---- 跳投 jump_shot ----
+        - id: js.release.elbow
+          action-type: jump_shot
+          phase: release
+          metric: elbow_angle
+          min: 160
+          max: 180
+          unit: deg
+          severity: MAJOR
+          checkpoint-label: 跳投出手肘
+          cue-low: 跳投出手肘未伸直,顶点再送
+
+        # ---- 上篮 layup ----
+        - id: lu.finish.elbow
+          action-type: layup
+          phase: finish
+          metric: elbow_angle
+          min: 150
+          max: 180
+          unit: deg
+          severity: MINOR
+          checkpoint-label: 上篮终结伸展
+          cue-low: 终结时手臂未充分伸展,向上够高
+
+        # ---- 安全项(任意投篮相位;命中即 SafetyAlert)----
+        - id: safety.trunk_lean
+          action-type: "*"
+          phase: "*"
+          metric: trunk_lean_deg
+          max: 25
+          unit: deg
+          severity: MAJOR
+          safety: true
+          checkpoint-label: 躯干后仰
+          cue-high: 身体后仰过大,收紧核心避免腰背受力
+          cooldown-ms: 4000
+
+        - id: safety.layup_landing_knee
+          action-type: layup
+          phase: finish
+          metric: landing_knee_angle
+          min: 100
+          unit: deg
+          severity: MAJOR
+          safety: true
+          checkpoint-label: 落地屈膝缓冲
+          cue-low: 落地膝盖过直,屈膝缓冲保护膝关节
+          cooldown-ms: 4000
