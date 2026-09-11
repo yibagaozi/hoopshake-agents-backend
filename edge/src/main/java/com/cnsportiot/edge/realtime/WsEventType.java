@@ -17,6 +17,12 @@ public enum WsEventType {
      */
     ACTION_SAMPLE("actionSample", false, Set.of()),
 
+    /**
+     * 会话批处理完成(CV 上行,payload 至少含 {@code sessionId}):触发"会话结束出云"。
+     * 仅入站、不扇出 UI,由 {@code SessionPublishListener} 消费。
+     */
+    SESSION_PROCESSED("sessionProcessed", false, Set.of()),
+
     /** 即时反馈提示 */
     CUE("cue", false, Set.of(WsRole.DISPLAY, WsRole.CONSOLE)),
 

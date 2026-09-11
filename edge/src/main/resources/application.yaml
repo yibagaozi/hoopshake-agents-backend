@@ -9,6 +9,14 @@ spring:
     import: optional:classpath:checkpoints.yaml
   jackson:
     default-property-inclusion: non_null
+  rabbitmq:
+    host: ${RABBITMQ_HOST:101.43.233.17}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: ${RABBITMQ_VHOST:/}
+    template:
+      mandatory: true   # 无队列可达时触发 return,便于告警(生产者无 spool,先记日志)
 
 hoopshake:
   edge:
@@ -82,6 +90,26 @@ hoopshake:
       work-dir: C:/hoopshake/tools
       env:
         PYTHONUNBUFFERED: "1"
+
+    # 对象存储:默认关闭,用 NoopObjectStore 占位;线上填 endpoint/凭据/桶后置 true
+    minio:
+      enabled: false
+      endpoint: http://127.0.0.1:9000
+      access-key: ${MINIO_ACCESS_KEY:}
+      secret-key: ${MINIO_SECRET_KEY:}
+      bucket: hoopshake
+      uri-scheme: s3
+
+    # 会话结束出云:读算法交接文件 → 上传 motion/gallery → 推 /api/ingest/**
+    publish:
+      enabled: true
+      handoff-rel-path: cloud/ingest.json
+
+    # 批处理出云选路:mq.enabled=true 时 session/clips/gallery 走 MQ,否则走 HTTP;实时反馈始终 HTTP
+    ingest:
+      mq:
+        enabled: ${EDGE_INGEST_MQ_ENABLED:false}
+        exchange: hoopshake.ingest
 
 logging:
   level:

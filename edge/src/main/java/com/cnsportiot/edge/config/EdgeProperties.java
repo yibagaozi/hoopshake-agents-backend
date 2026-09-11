@@ -35,6 +35,12 @@ public class EdgeProperties {
 
     private Cv cv = new Cv();
 
+    private Minio minio = new Minio();
+
+    private Publish publish = new Publish();
+
+    private Ingest ingest = new Ingest();
+
     @Getter
     @Setter
     public static class Camera {
@@ -96,6 +102,52 @@ public class EdgeProperties {
         private Map<String, String> env = new LinkedHashMap<>();
         private boolean autoRestart = true;
         private int maxFailures = 5;
+    }
+
+    /**
+     * 对象存储(MinIO / S3 兼容)。逐帧 motion.jsonl 与 gallery 特征上传到此,
+     * 回填 action_clip.motion_uri / reid_gallery.storage_uri。默认关闭:未配置时用 NoopObjectStore。
+     */
+    @Getter
+    @Setter
+    public static class Minio {
+        private boolean enabled = false;
+        private String endpoint = "http://127.0.0.1:9000";
+        private String accessKey;
+        private String secretKey;
+        private String bucket = "hoopshake";
+        /**
+         * 回填 URI 的方案:{@code s3}(默认,返回 {@code s3://bucket/key},不可点开但稳定不透明)
+         * 或 {@code url}(返回 {@code {public-base-url}/bucket/key},可直接拉取)。
+         */
+        private String uriScheme = "s3";
+        /** uriScheme=url 时用于拼可访问地址;缺省用 endpoint。 */
+        private String publicBaseUrl;
+    }
+
+    /** 会话结束出云:读算法交接文件 → 上传 motion → 推 action-clips / session / gallery。 */
+    @Getter
+    @Setter
+    public static class Publish {
+        private boolean enabled = true;
+        /** 算法在 session 目录下写的交接文件相对路径(cloud 就绪载荷)。 */
+        private String handoffRelPath = "cloud/ingest.json";
+    }
+
+    /** 出云选路。批处理(session/clips/gallery)可走 MQ;实时反馈始终走 HTTP。 */
+    @Getter
+    @Setter
+    public static class Ingest {
+        private Mq mq = new Mq();
+
+        /** 批处理出云 MQ(RabbitMQ)。关闭时 SessionCloudPublisher 走 HTTP(默认)。 */
+        @Getter
+        @Setter
+        public static class Mq {
+            private boolean enabled = false;
+            /** 与云端 hoopshake.ingest 一致的 topic 交换机名。 */
+            private String exchange = "hoopshake.ingest";
+        }
     }
 
 }

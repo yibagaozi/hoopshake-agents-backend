@@ -31,7 +31,9 @@ public enum EdgeErrorCode implements ErrorCodeSpec {
     MEDIAMTX_NOT_READY(50350, HttpStatus.SERVICE_UNAVAILABLE, "本地流媒体服务未就绪"),
 
     // ── 507 存储
-    DISK_SPACE_LOW(50700, HttpStatus.INSUFFICIENT_STORAGE, "本地存储不足");
+    DISK_SPACE_LOW(50700, HttpStatus.INSUFFICIENT_STORAGE, "本地存储不足"),
+    /** 对象存储(MinIO)上传失败 */
+    STORAGE_FAILED(50701, HttpStatus.INSUFFICIENT_STORAGE, "对象存储上传失败");
 
     private final int code;
     private final HttpStatus httpStatus;
