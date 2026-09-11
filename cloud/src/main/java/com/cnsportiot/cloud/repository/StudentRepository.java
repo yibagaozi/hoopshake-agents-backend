@@ -105,7 +105,7 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
                      JOIN account a ON a.id = s.account_id
                      LEFT JOIN reid_gallery g ON g.id = s.active_gallery_id
             WHERE s.id = :studentId
-              AND a.status = 'ACTIVE'
+              AND a.status <> 'DISABLED'
             """,
             nativeQuery = true)
     Optional<StudentDetail> findActiveDetailByStudentId(@Param("studentId") UUID studentId);
