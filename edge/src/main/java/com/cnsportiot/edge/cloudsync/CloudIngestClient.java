@@ -38,7 +38,7 @@ public class CloudIngestClient {
     public List<RosterEntry> fetchRoster(UUID lessonId) {
         try {
             Map<String, Object> envelope = restClient.get()
-                    .uri("/api/ingest/reid/gallery?lessonId={id}", lessonId)
+                    .uri("/api/ingest/gallery/pull?lessonId={id}", lessonId)
                     .retrieve()
                     .body(Map.class);
 
