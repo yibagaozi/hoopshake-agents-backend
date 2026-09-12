@@ -34,8 +34,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 算法 v2.2.0 直播动作事件接线:订阅 {@link WsEventType#ACTION_FINALIZED}(由 {@link com.cnsportiot.edge.cv.AlgoLiveClient}
- * 从算法 WS 收并解析),一条投篮动作:
+ * 算法 v2.2.0 直播动作事件接线:订阅 {@link WsEventType#ACTION_FINALIZED} 一条投篮动作:
  * <ol>
  *   <li>身份绑定:{@code global_id}/{@code stu_XX} → 学号 → studentId(经 {@link IdentityBindingStore});</li>
  *   <li>大屏:发 {@link WsEventType#ACTION_FOCUS}(谁、什么动作、命中);</li>
@@ -60,7 +59,11 @@ public class LiveActionListener {
     private final EdgeProperties props;
     private final ObjectMapper objectMapper;
 
+    private static final long ENROLL_PROMPT_COOLDOWN_MS = 15_000;
+
     private final ConcurrentMap<String, AtomicInteger> clipCounters = new ConcurrentHashMap<>();
+    /** 待绑定提示去抖:同一身份 15s 内只提醒一次,避免每投一次刷一条。 */
+    private final ConcurrentMap<String, Long> lastEnrollPrompt = new ConcurrentHashMap<>();
 
     public LiveActionListener(EdgeEventPublisher publisher, IdentityBindingStore bindings,
                               SessionService sessionService, RealtimeRuleEngine engine,
@@ -116,6 +119,10 @@ public class LiveActionListener {
 
         // 3) 落库(需会话 + 身份;未绑定按配置决定是否“未归属”落)
         boolean hasIdentity = studentNo != null || studentId != null;
+        if (!hasIdentity) {
+            // 未绑定身份在投篮 → 提醒操作台/注册页“有新面孔,请输学号”(按身份去抖)
+            promptEnrollIfNew(a);
+        }
         if (sessionId == null || (!hasIdentity && !props.getLive().isPersistUnbound())) {
             log.debug("直播动作只上屏不落库 session={} 身份={}", sessionId, hasIdentity);
             return;
@@ -333,6 +340,22 @@ public class LiveActionListener {
     private static Boolean jbool(JsonNode n, String key) {
         JsonNode v = n.get(key);
         return v == null || v.isNull() || !v.isBoolean() ? null : v.asBoolean();
+    }
+
+    /** 未绑定身份在投篮 → 发 ENROLL_NEEDED 提醒教师去输学号(同一身份 15s 去抖)。 */
+    private void promptEnrollIfNew(WsEvents.ActionFinalized a) {
+        String key = a.globalId() != null && !a.globalId().isBlank() ? a.globalId() : a.studentLocalId();
+        if (key == null || key.isBlank()) {
+            return;
+        }
+        long nowMs = System.currentTimeMillis();
+        Long last = lastEnrollPrompt.get(key);
+        if (last != null && nowMs - last < ENROLL_PROMPT_COOLDOWN_MS) {
+            return;
+        }
+        lastEnrollPrompt.put(key, nowMs);
+        publisher.publish(WsEventType.ENROLL_NEEDED, new WsEvents.EnrollNeeded(
+                a.studentLocalId(), a.globalId(), a.actionType(), OffsetDateTime.now()));
     }
 
     private UUID currentSessionId() {

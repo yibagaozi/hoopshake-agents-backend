@@ -129,6 +129,31 @@ class LiveActionListenerTest {
     }
 
     @Test
+    void unboundIdentity_promptsEnrollOnce_debounced_andNoPersist(@TempDir Path root) {
+        EdgeProperties p = props(root);
+        EdgeEventPublisher pub = mock(EdgeEventPublisher.class);
+        SessionService ss = mock(SessionService.class);
+        when(ss.current()).thenReturn(recording());
+        RealtimeRuleEngine engine = mock(RealtimeRuleEngine.class);
+        when(engine.evaluate(any())).thenReturn(List.of());
+        CloudIngestClient cloud = mock(CloudIngestClient.class);
+
+        IdentityBindingStore bindings = new IdentityBindingStore(p, mapper);
+        bindings.load();   // 空:该人脸没绑过学号
+
+        LiveActionListener listener = new LiveActionListener(
+                pub, bindings, ss, engine, new CheckpointProperties(),
+                mock(FeedbackForwarder.class), cloud, new SyncTaskExecutor(), p, mapper);
+
+        listener.onEdgeEvent(new EdgeEvent(WsEventType.ACTION_FINALIZED, payload()));
+        listener.onEdgeEvent(new EdgeEvent(WsEventType.ACTION_FINALIZED, payload()));  // 同一身份 → 去抖
+
+        verify(pub, times(1)).publish(eq(WsEventType.ENROLL_NEEDED), any());  // 只提醒一次
+        verify(pub, times(2)).publish(eq(WsEventType.ACTION_FOCUS), any());   // 大屏每次仍聚焦
+        verify(cloud, never()).pushActionClips(any(), anyList());              // 未绑定不落库
+    }
+
+    @Test
     void actionFinalized_noSession_showsFocus_butNoPersist(@TempDir Path root) {
         EdgeProperties p = props(root);
         EdgeEventPublisher pub = mock(EdgeEventPublisher.class);

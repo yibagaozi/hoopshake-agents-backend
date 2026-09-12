@@ -88,6 +88,17 @@ public final class WsEvents {
             java.util.Map<String, Object> measured) {
     }
 
+    /**
+     * 待绑定人脸提示(→ 操作台/注册页):直播里出现未绑学号的身份在投篮,提醒教师去 {@code /local/enroll/bind} 输学号。
+     * enrollSession 便于前端直接拉该注册 session 的缩略图看脸;stu_XX 无缩略图时前端仅提示“有未登记面孔”。
+     */
+    public record EnrollNeeded(
+            String studentLocalId,
+            String globalId,
+            String actionType,
+            OffsetDateTime occurredAt) {
+    }
+
     /** 即时反馈提示,结构对齐云端 §10.3 items[] */
     public record Cue(
             String eventId,

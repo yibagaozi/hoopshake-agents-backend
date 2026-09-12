@@ -27,6 +27,11 @@ public enum WsEventType {
     /** 算法直播断流空洞({@code timeline_gap}):仅入站,记日志/大屏提示,不落库 */
     TIMELINE_GAP("timelineGap", false, Set.of()),
 
+    /**
+     * 待绑定人脸提示:直播中出现了没绑学号的身份(stu_XX/global_id)在投篮,提醒操作台/注册页“有新面孔,请输学号”。
+     * 由 {@code LiveActionListener} 在解析不到绑定时发(按身份去抖,不刷屏)。payload 见 {@code WsEvents.EnrollNeeded}。
+     */
+    ENROLL_NEEDED("enrollNeeded", false, Set.of(WsRole.CONSOLE, WsRole.REGISTRATION)),
 
     /** 即时反馈提示 */
     CUE("cue", false, Set.of(WsRole.DISPLAY, WsRole.CONSOLE)),

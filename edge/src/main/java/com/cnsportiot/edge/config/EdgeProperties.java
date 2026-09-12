@@ -37,7 +37,6 @@ public class EdgeProperties {
     private Cv cv = new Cv();
 
     private Minio minio = new Minio();
-
     private Publish publish = new Publish();
 
     private Ingest ingest = new Ingest();
@@ -168,6 +167,12 @@ public class EdgeProperties {
     @Getter
     @Setter
     public static class Live {
+        /** 直播对接总开关。开启后 AlgoLiveClient 连算法 WS 收动作事件。 */
+        private boolean enabled = false;
+        /** 算法 WS 服务地址(算法 run 起的服务端,edge 连它)。 */
+        private String wsUrl = "ws://127.0.0.1:8765/";
+        /** 断线重连间隔。 */
+        private Duration reconnectInterval = Duration.ofSeconds(3);
         /** 算法直播产出根目录(读 enrollment.json + 注册缩略图),= 算法仓库 data/outputs/live。 */
         private String algoOutputsDir = "C:/hoopshake/algo/data/outputs/live";
         /** 身份绑定表缓存文件(相对 data-root)。 */
