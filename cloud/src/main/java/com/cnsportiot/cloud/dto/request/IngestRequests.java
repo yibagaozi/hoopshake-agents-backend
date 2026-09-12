@@ -43,9 +43,13 @@ public final class IngestRequests {
             UUID sessionId,
             @NotEmpty @Valid List<Item> items) {
 
+        /**
+         * 身份可用 studentId(UUID)或 studentNo(学号)二选一;服务端优先 studentId,
+         * 缺失时按 studentNo 查 student 表解析。两者都缺/学号查不到→该条 rejected
+         */
         public record Item(
                 @NotBlank String eventId,
-                @NotNull UUID studentId,
+                UUID studentId,
                 @NotNull OffsetDateTime occurredAt,
                 BigDecimal timestampMs,
                 @Size(max = 24) String actionType,
@@ -54,7 +58,17 @@ public final class IngestRequests {
                 @Size(max = 255) String cueText,
                 Map<String, Object> measured,
                 BigDecimal confidence,
-                @Size(max = 16) String sourceCamera) {}
+                @Size(max = 16) String sourceCamera,
+                @Size(max = 32) String studentNo) {
+
+            /** 兼容旧构造(仅 studentId,无 studentNo) */
+            public Item(String eventId, UUID studentId, OffsetDateTime occurredAt, BigDecimal timestampMs,
+                        String actionType, String checkpointId, FeedbackSeverity severity, String cueText,
+                        Map<String, Object> measured, BigDecimal confidence, String sourceCamera) {
+                this(eventId, studentId, occurredAt, timestampMs, actionType, checkpointId, severity,
+                        cueText, measured, confidence, sourceCamera, null);
+            }
+        }
     }
 
     /** 10.4 ReID gallery 登记(敏感操作,记 audit_log) */
@@ -87,8 +101,12 @@ public final class IngestRequests {
             @NotNull UUID sessionId,
             @NotEmpty @Valid List<ClipItem> items) {
 
+        /**
+         * 身份可用 studentId(UUID)或 studentNo(学号)二选一;服务端优先 studentId,
+         * 缺失时按 studentNo 查 student 表解析。两者都缺/学号查不到→该条 rejected
+         */
         public record ClipItem(
-                @NotNull UUID studentId,
+                UUID studentId,
                 @NotNull Integer clipIndex,
                 @NotBlank @Size(max = 24) String actionType,
                 @NotNull BigDecimal startMs,
@@ -100,7 +118,19 @@ public final class IngestRequests {
                 Boolean shotMade,
                 Map<String, Object> score,
                 @Size(max = 512) String motionUri,
-                Map<String, Object> motionRange) {}
+                Map<String, Object> motionRange,
+                @Size(max = 32) String studentNo) {
+
+            /** 兼容旧构造(仅 studentId,无 studentNo) */
+            public ClipItem(UUID studentId, Integer clipIndex, String actionType,
+                            BigDecimal startMs, BigDecimal endMs, BigDecimal releaseMs,
+                            String anchorCamera, String zoneId, List<Map<String, Object>> phases,
+                            Boolean shotMade, Map<String, Object> score, String motionUri,
+                            Map<String, Object> motionRange) {
+                this(studentId, clipIndex, actionType, startMs, endMs, releaseMs, anchorCamera,
+                        zoneId, phases, shotMade, score, motionUri, motionRange, null);
+            }
+        }
     }
 }
 
