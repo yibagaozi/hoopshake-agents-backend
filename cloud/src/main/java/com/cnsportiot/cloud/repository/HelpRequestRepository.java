@@ -43,30 +43,30 @@ public interface HelpRequestRepository extends JpaRepository<HelpRequest, UUID> 
 
     /** 教师端全部工单 */
     @Query("""
-        SELECT hr.id           AS id,
-               hr.studentId    AS studentId,
-               s.studentNo     AS studentNo,
-               a.displayName   AS displayName,
-               hr.lessonId     AS lessonId,
-               hr.sessionId    AS sessionId,
-               hr.question     AS question,
-               hr.status       AS status,
-               hr.teacherReply AS teacherReply,
-               hr.createdAt    AS createdAt,
-               hr.handledAt    AS handledAt
-        FROM HelpRequest hr
-             JOIN Student s ON s.id = hr.studentId
-             JOIN Account a ON a.id = s.accountId
-        WHERE hr.studentId IN (
-                SELECT e.studentId FROM LessonEnrollment e
-                     JOIN Lesson l ON l.id = e.lessonId
-                WHERE l.teacherId = :teacherId)
-          AND (:status IS NULL OR hr.status = :status)
-        ORDER BY hr.createdAt DESC
-        """)
+            SELECT hr.id           AS id,
+                   hr.studentId    AS studentId,
+                   s.studentNo     AS studentNo,
+                   a.displayName   AS displayName,
+                   hr.lessonId     AS lessonId,
+                   hr.sessionId    AS sessionId,
+                   hr.question     AS question,
+                   hr.status       AS status,
+                   hr.teacherReply AS teacherReply,
+                   hr.createdAt    AS createdAt,
+                   hr.handledAt    AS handledAt
+            FROM HelpRequest hr
+                 JOIN Student s ON s.id = hr.studentId
+                 JOIN Account a ON a.id = s.accountId
+            WHERE hr.studentId IN (
+                    SELECT e.studentId FROM LessonEnrollment e
+                         JOIN Lesson l ON l.id = e.lessonId
+                    WHERE l.teacherId = :teacherId)
+              AND hr.status = COALESCE(:status, hr.status)
+            ORDER BY hr.createdAt DESC
+            """)
     Page<HelpRequestView> findForTeacher(@Param("teacherId") UUID teacherId,
-                                     @Param("status") HelpRequestStatus status,
-                                     Pageable pageable);
+                                         @Param("status") HelpRequestStatus status,
+                                         Pageable pageable);
 
     /** 单条工单视图(带学生学号/姓名),处理后回显用;调用前需自行校验教师归属 */
     @Query("""

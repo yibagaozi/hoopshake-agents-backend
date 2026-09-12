@@ -77,13 +77,13 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
                    dominant_hand AS dominantHand,
                    gallery_ready AS galleryReady
             FROM v_student_brief
-            WHERE (:kw IS NULL OR student_no LIKE concat(:kw, '%') OR display_name LIKE concat('%', :kw, '%'))
+            WHERE (CAST(:kw AS text) IS NULL OR student_no LIKE concat(:kw, '%') OR display_name LIKE concat('%', :kw, '%'))
             ORDER BY student_no
             """,
             countQuery = """
             SELECT count(*)
             FROM v_student_brief
-            WHERE (:kw IS NULL OR student_no LIKE concat(:kw, '%') OR display_name LIKE concat('%', :kw, '%'))
+            WHERE (CAST(:kw AS text) IS NULL OR student_no LIKE concat(:kw, '%') OR display_name LIKE concat('%', :kw, '%'))
             """,
             nativeQuery = true)
     Page<StudentBrief> findBriefsByKeyword(@Param("kw") String keyword, Pageable pageable);

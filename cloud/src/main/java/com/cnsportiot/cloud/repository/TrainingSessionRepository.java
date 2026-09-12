@@ -36,8 +36,8 @@ public interface TrainingSessionRepository extends JpaRepository<TrainingSession
     @Query("""
             SELECT DISTINCT s FROM TrainingSession s JOIN ActionClip c ON c.sessionId = s.id
             WHERE c.studentId = :sid
-              AND (:from IS NULL OR s.generatedAt >= :from)
-              AND (:to IS NULL OR s.generatedAt <= :to)
+              AND (cast(:from as java.time.OffsetDateTime) IS NULL OR s.generatedAt >= :from)
+              AND (cast(:to as java.time.OffsetDateTime) IS NULL OR s.generatedAt <= :to)
             ORDER BY s.generatedAt DESC
             """)
     Page<TrainingSession> findSessionsByStudent(
