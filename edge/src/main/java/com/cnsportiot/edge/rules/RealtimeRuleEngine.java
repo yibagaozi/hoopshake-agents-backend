@@ -50,7 +50,12 @@ public class RealtimeRuleEngine {
     }
 
     public List<RuleHit> evaluate(ActionSample s) {
-        if (s == null || s.studentId() == null || s.actionType() == null || s.phase() == null) {
+        // 身份用 studentId(UUID)或 studentNo(学号)之一即可——直播绑定只知学号时也要能出提示
+        if (s == null || s.actionType() == null || s.phase() == null) {
+            return List.of();
+        }
+        String idKey = s.studentId() != null ? s.studentId().toString() : s.studentNo();
+        if (idKey == null || idKey.isBlank()) {
             return List.of();
         }
         long nowMs = clock.millis();
@@ -86,14 +91,14 @@ public class RealtimeRuleEngine {
 
             // 去抖:冷却期内同(学生,检查点)不重复
             long cooldown = r.getCooldownMs() != null ? r.getCooldownMs() : props.getDefaultCooldownMs();
-            String key = s.studentId() + "|" + r.getId();
+            String key = idKey + "|" + r.getId();
             Long last = lastEmit.get(key);
             if (last != null && nowMs - last < cooldown) {
                 continue;
             }
             lastEmit.put(key, nowMs);
 
-            String eventId = s.studentId() + ":" + r.getId() + ":"
+            String eventId = idKey + ":" + r.getId() + ":"
                     + (s.timestampMs() != null ? Math.round(s.timestampMs()) : nowMs);
             hits.add(new RuleHit(
                     eventId, s.studentId(), s.displayName(), s.studentNo(),

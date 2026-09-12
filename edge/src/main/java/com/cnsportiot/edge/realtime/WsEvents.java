@@ -56,6 +56,27 @@ public final class WsEvents {
             OffsetDateTime occurredAt) {
     }
 
+    /**
+     * 算法 v2.2.0 直播 {@code action_finalized} 的解析结果(edge 内部载荷)。
+     * 身份是算法的 {@code stu_XX}(当堂)/ {@code globalId}(跨课次人脸);edge 经绑定表映射到学号/UUID。
+     * {@code angles} 是该动作 [start,end] 区间的逐时刻关节角序列(每行 {t_ms, shooting_elbow, right_knee, ...})
+     */
+    public record ActionFinalized(
+            String algoSessionId,
+            String studentLocalId,
+            String globalId,
+            String actionType,
+            Double startMs,
+            Double endMs,
+            Double releaseMs,
+            Boolean made,
+            Double confidence,
+            String identityConfidence,
+            String identitySource,
+            List<java.util.Map<String, Object>> phases,
+            List<java.util.Map<String, Object>> angles) {
+    }
+
     /** 当前聚焦的动作,大屏中央区用 */
     public record ActionFocus(
             UUID studentId,

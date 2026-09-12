@@ -13,10 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.OffsetDateTime;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 /** 名单缓存在内存中,配合选课流程使用:一次选课拉一次,课中只读 */
 @Service
@@ -69,6 +66,14 @@ public class RosterServiceImpl implements RosterService {
         return entry == null
                 ? new MatchResponse(false, null)
                 : new MatchResponse(true, toItem(entry));
+    }
+
+    @Override
+    public Optional<RosterEntry> find(String studentNo) {
+        if (studentNo == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(byStudentNo.get(studentNo.trim()));
     }
 
     private RosterResponse toResponse() {

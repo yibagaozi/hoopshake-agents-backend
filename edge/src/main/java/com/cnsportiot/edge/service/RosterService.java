@@ -1,8 +1,10 @@
 package com.cnsportiot.edge.service;
 
+import com.cnsportiot.edge.domain.RosterEntry;
 import com.cnsportiot.edge.dto.RosterDtos.RosterResponse;
 import com.cnsportiot.edge.dto.RosterDtos.MatchResponse;
 
+import java.util.Optional;
 import java.util.UUID;
 
 /** 参课名单:从云端 §10.5 拉取并缓存在本地,断网时仍可读(架构规划 E3) */
@@ -16,4 +18,7 @@ public interface RosterService {
 
     /** 按完整学号精确匹配,供现场注册判断该生是否在本课名单内 */
     MatchResponse match(String studentNo);
+
+    /** 按学号查名单条目(供人脸→学号绑定时回填 studentId);名单未拉或查无返回空 */
+    Optional<RosterEntry> find(String studentNo);
 }

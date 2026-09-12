@@ -60,7 +60,6 @@ hoopshake:
     cloud:
       base-url: http://agent.cnsportiot.com
       service-token: ${EDGE_SERVICE_TOKEN:default-token}
-
       connect-timeout-millis: 3000
       read-timeout-millis: 10000
 
@@ -82,6 +81,54 @@ hoopshake:
       work-dir: C:/hoopshake/tools
       env:
         PYTHONUNBUFFERED: "1"
+
+    # 对象存储:默认关闭,用 NoopObjectStore 占位;线上填 endpoint/凭据/桶后置 true
+    minio:
+      enabled: false
+      endpoint: http://127.0.0.1:9000
+      access-key: ${MINIO_ACCESS_KEY:}
+      secret-key: ${MINIO_SECRET_KEY:}
+      bucket: hoopshake
+      uri-scheme: s3
+
+    # 会话结束出云:读算法交接文件 → 上传 motion/gallery → 推 /api/ingest/**
+    publish:
+      enabled: true
+      handoff-rel-path: cloud/ingest.json
+
+    # 下课 → 算法批处理 → sessionProcessed 触发编排。
+    # enabled=true 且 command 已配时,stop() 自动对该 session 跑批处理,成功(退出 0 + 产出 cloud/ingest.json)后发信号出云。
+    # 占位符 {sessionId} {dataDir} {rawDir}(=dataDir/raw) {cloudDir}(=dataDir/cloud) 运行时替换。
+    # 未接入算法入口前保持 enabled=false:下课只停录制,出云走手动 POST /local/session/{id}/publish 或 CV 上行 sessionProcessed。
+    batch:
+      enabled: ${EDGE_BATCH_ENABLED:false}
+      auto-on-stop: true
+      command:
+        - python
+        - C:/hoopshake/algo/run_session.py
+        - --session
+        - "{sessionId}"
+        - --raw
+        - "{rawDir}"
+        - --cloud
+        - "{cloudDir}"
+      work-dir: C:/hoopshake/algo
+      env:
+        PYTHONUNBUFFERED: "1"
+      timeout: 30m
+
+    # 批处理出云选路:mq.enabled=true 时 session/clips/gallery 走 MQ,否则走 HTTP;实时反馈始终 HTTP
+    ingest:
+      mq:
+        enabled: ${EDGE_INGEST_MQ_ENABLED:false}
+        exchange: hoopshake.ingest
+
+    # 算法 v2.2.0 直播对接。WS 沿用原设计:算法作客户端连 edge 的 /internal/cv/stream 推 action_finalized/
+    # timeline_gap(edge 不反连算法)。此处只配:读算法注册产物的目录、人脸绑定表缓存位置。
+    live:
+      algo-outputs-dir: ${ALGO_OUTPUTS_DIR:C:/hoopshake/algo/data/outputs/live}
+      binding-rel-path: identity/bindings.json
+      persist-unbound: false
 
 logging:
   level:

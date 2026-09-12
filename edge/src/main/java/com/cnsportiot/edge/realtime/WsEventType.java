@@ -17,6 +17,17 @@ public enum WsEventType {
      */
     ACTION_SAMPLE("actionSample", false, Set.of()),
 
+    /**
+     * 一个投篮动作 finalize 一条,含 phases + 每相位 angles[] + 身份(stu_XX/global_id)+ made。
+     * 仅入站,由 {@code LiveActionListener} 消费:身份绑定解析 → 大屏 actionFocus → angles 喂规则引擎出 cue
+     * → 单条 action_clip 落库(score.release_angles 供云端派生标准度)。payload 见 {@code WsEvents.ActionFinalized}
+     */
+    ACTION_FINALIZED("actionFinalized", false, Set.of()),
+
+    /** 算法直播断流空洞({@code timeline_gap}):仅入站,记日志/大屏提示,不落库 */
+    TIMELINE_GAP("timelineGap", false, Set.of()),
+
+
     /** 即时反馈提示 */
     CUE("cue", false, Set.of(WsRole.DISPLAY, WsRole.CONSOLE)),
 
