@@ -7,6 +7,7 @@ import com.cnsportiot.edge.controller.EnrollBindingController.BindRequest;
 import com.cnsportiot.edge.controller.EnrollBindingController.BoundPerson;
 import com.cnsportiot.edge.controller.EnrollBindingController.EnrolledIdentities;
 import com.cnsportiot.edge.domain.RosterEntry;
+import com.cnsportiot.edge.identity.EnrollLauncher;
 import com.cnsportiot.edge.identity.IdentityBindingStore;
 import com.cnsportiot.edge.service.RosterService;
 import org.junit.jupiter.api.Test;
@@ -54,7 +55,7 @@ class EnrollBindingControllerTest {
                 """);
         EnrollBindingController c = new EnrollBindingController(
                 props(root, algoOut), new IdentityBindingStore(props(root, algoOut), mapper),
-                mock(RosterService.class), mapper);
+                mock(RosterService.class), mapper, mock(EnrollLauncher.class));
 
         ApiResponse<EnrolledIdentities> r = c.identities("live_x");
         assertThat(r.data().people()).hasSize(2);
@@ -70,7 +71,7 @@ class EnrollBindingControllerTest {
                 """);
         EnrollBindingController c = new EnrollBindingController(
                 props(root, algoOut), new IdentityBindingStore(props(root, algoOut), mapper),
-                mock(RosterService.class), mapper);
+                mock(RosterService.class), mapper, mock(EnrollLauncher.class));
 
         EnrolledIdentities data = c.identities("live_y").data();
         assertThat(data.people()).hasSize(1);
@@ -85,7 +86,7 @@ class EnrollBindingControllerTest {
         RosterService roster = mock(RosterService.class);
         when(roster.find("2021001")).thenReturn(Optional.of(new RosterEntry(
                 STU, "2021001", "张三", "RIGHT", null, null, null, null, null)));
-        EnrollBindingController c = new EnrollBindingController(p, store, roster, mapper);
+        EnrollBindingController c = new EnrollBindingController(p, store, roster, mapper, mock(EnrollLauncher.class));
 
         List<BoundPerson> out = c.bind(new BindRequest(List.of(
                 new BindItem("stu_00", "stu_global_03", "2021001")))).data();
@@ -105,7 +106,7 @@ class EnrollBindingControllerTest {
         store.load();
         RosterService roster = mock(RosterService.class);
         when(roster.find("9999")).thenReturn(Optional.empty());
-        EnrollBindingController c = new EnrollBindingController(p, store, roster, mapper);
+        EnrollBindingController c = new EnrollBindingController(p, store, roster, mapper, mock(EnrollLauncher.class));
 
         BoundPerson bp = c.bind(new BindRequest(List.of(
                 new BindItem("stu_02", "stu_global_09", "9999")))).data().get(0);

@@ -45,7 +45,7 @@ public final class IngestRequests {
 
         /**
          * 身份可用 studentId(UUID)或 studentNo(学号)二选一;服务端优先 studentId,
-         * 缺失时按 studentNo 查 student 表解析。两者都缺/学号查不到→该条 rejected
+         * 缺失时按 studentNo 查 student 表解析。两者都缺/学号查不到→该条 rejected。
          */
         public record Item(
                 @NotBlank String eventId,
@@ -61,7 +61,7 @@ public final class IngestRequests {
                 @Size(max = 16) String sourceCamera,
                 @Size(max = 32) String studentNo) {
 
-            /** 兼容旧构造(仅 studentId,无 studentNo) */
+            /** 兼容旧构造(仅 studentId,无 studentNo)。 */
             public Item(String eventId, UUID studentId, OffsetDateTime occurredAt, BigDecimal timestampMs,
                         String actionType, String checkpointId, FeedbackSeverity severity, String cueText,
                         Map<String, Object> measured, BigDecimal confidence, String sourceCamera) {
@@ -103,7 +103,7 @@ public final class IngestRequests {
 
         /**
          * 身份可用 studentId(UUID)或 studentNo(学号)二选一;服务端优先 studentId,
-         * 缺失时按 studentNo 查 student 表解析。两者都缺/学号查不到→该条 rejected
+         * 缺失时按 studentNo 查 student 表解析。两者都缺/学号查不到→该条 rejected。
          */
         public record ClipItem(
                 UUID studentId,
@@ -121,7 +121,7 @@ public final class IngestRequests {
                 Map<String, Object> motionRange,
                 @Size(max = 32) String studentNo) {
 
-            /** 兼容旧构造(仅 studentId,无 studentNo) */
+            /** 兼容旧构造(仅 studentId,无 studentNo)。 */
             public ClipItem(UUID studentId, Integer clipIndex, String actionType,
                             BigDecimal startMs, BigDecimal endMs, BigDecimal releaseMs,
                             String anchorCamera, String zoneId, List<Map<String, Object>> phases,

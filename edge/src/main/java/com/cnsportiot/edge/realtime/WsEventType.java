@@ -18,13 +18,27 @@ public enum WsEventType {
     ACTION_SAMPLE("actionSample", false, Set.of()),
 
     /**
+     * 会话批处理完成(CV 上行,payload 至少含 {@code sessionId}):触发"会话结束出云"。
+     * 仅入站、不扇出 UI,由 {@code SessionPublishListener} 消费。
+     */
+    SESSION_PROCESSED("sessionProcessed", false, Set.of()),
+
+    /**
+     * 逐动作事件(CV 上行,一个动作完成发一条):现阶段"实时动作级"闭环的载体。
+     * 仅入站、不直接扇出 UI(由 {@code ActionClipForwarder} 消费):当场①转 {@link #ACTION_FOCUS} 上大屏、
+     * ②作为单条 action_clip 落库,供 agent 简易分析。payload 结构见 {@code WsEvents.ActionEvent}。
+     */
+    ACTION_EVENT("actionEvent", false, Set.of()),
+
+    /**
+     * 算法 v2.2.0 直播 {@code action_finalized}(edge 作 WS 客户端从 {@code ws://127.0.0.1:8765} 收):
      * 一个投篮动作 finalize 一条,含 phases + 每相位 angles[] + 身份(stu_XX/global_id)+ made。
      * 仅入站,由 {@code LiveActionListener} 消费:身份绑定解析 → 大屏 actionFocus → angles 喂规则引擎出 cue
-     * → 单条 action_clip 落库(score.release_angles 供云端派生标准度)。payload 见 {@code WsEvents.ActionFinalized}
+     * → 单条 action_clip 落库(score.release_angles 供云端派生标准度)。payload 见 {@code WsEvents.ActionFinalized}。
      */
     ACTION_FINALIZED("actionFinalized", false, Set.of()),
 
-    /** 算法直播断流空洞({@code timeline_gap}):仅入站,记日志/大屏提示,不落库 */
+    /** 算法直播断流空洞({@code timeline_gap}):仅入站,记日志/大屏提示,不落库。 */
     TIMELINE_GAP("timelineGap", false, Set.of()),
 
     /**

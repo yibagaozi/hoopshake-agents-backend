@@ -1,14 +1,23 @@
 server:
   address: 0.0.0.0
-  port: 8081
+  port: 8080
 
 spring:
   application:
     name: edge
   config:
-    import: optional:classpath:checkpoints.yaml
+    import: optional:classpath:checkpoints.yaml   # 实时规则词表(hoopshake.edge.rules.*)
   jackson:
     default-property-inclusion: non_null
+  # 批处理出云 MQ(RabbitMQ)。仅当 hoopshake.edge.ingest.mq.enabled=true 时才发布/连接。
+  rabbitmq:
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: ${RABBITMQ_VHOST:/}
+    template:
+      mandatory: true   # 无队列可达时触发 return,便于告警(生产者无 spool,先记日志)
 
 hoopshake:
   edge:
@@ -58,29 +67,33 @@ hoopshake:
       pix-fmt: yuv420p
 
     cloud:
-      base-url: https://agent.cnsportiot.com
-      service-token: ${EDGE_SERVICE_TOKEN:sdf4g98szd4gv9df4zg9fdsz}
+      base-url: https://api.hoopshake.example
+      service-token: ${EDGE_SERVICE_TOKEN:default-token}
       connect-timeout-millis: 3000
       read-timeout-millis: 10000
 
     mock:
       cv-enabled: false
 
+    # 实时推理 CV 进程(算法 v2.2.0 直播入口)。edge 作为督程常驻拉起并看护(自启/自重启/失败上限)。
+    # 算法 run 会连 edge 的 /internal/cv/stream 上推 action_finalized/timeline_gap(见算法侧 EdgeWsClient 改动);
+    # rtsp、edge_ws_url、标定/同步等由算法 configs/live.yaml 读取,故命令行只给 run + --session。
+    # 约定算法仓库根 = ALGO_HOME(默认取原 mock_cv 所在目录),PYTHONPATH=. 相对该目录 + PYTHONUNBUFFERED=1 实时日志。
+    # 注:run 的 --session 决定算法读哪个 session 的注册产物;若要现场“注册即对齐 stu_XX”,应与人脸采集用同一 session
+    #     (见下方 enroll 说明)。当前督程是常驻单一 LIVE_SESSION;身份跨采集/推理主要靠事件里的 global_id 兜。
     cv:
       enabled: true
       auto-start: true
       command:
-        - python
-        - C:/hoopshake/tools/mock_cv.py
-        - --url
-        - ws://127.0.0.1:8081/internal/cv/stream
-        - --pose-hz
-        - "10"
-        - --persons
-        - "3"
-      work-dir: C:/hoopshake/tools
+        - ${ALGO_PYTHON:python}
+        - scripts/run_live_ws.py
+        - run
+        - --session
+        - ${LIVE_SESSION:live}
+      work-dir: ${ALGO_HOME:C:/hoopshake/tools}
       env:
         PYTHONUNBUFFERED: "1"
+        PYTHONPATH: "."
 
     # 对象存储:默认关闭,用 NoopObjectStore 占位;线上填 endpoint/凭据/桶后置 true
     minio:
@@ -126,9 +139,29 @@ hoopshake:
     # 算法 v2.2.0 直播对接。WS 沿用原设计:算法作客户端连 edge 的 /internal/cv/stream 推 action_finalized/
     # timeline_gap(edge 不反连算法)。此处只配:读算法注册产物的目录、人脸绑定表缓存位置。
     live:
-      algo-outputs-dir: ${ALGO_OUTPUTS_DIR:C:/hoopshake/algo/data/outputs/live}
+      # = 算法仓库 {ALGO_HOME}/data/outputs/live;enroll 产物与 identities 读取都在此
+      algo-outputs-dir: ${ALGO_OUTPUTS_DIR:C:/hoopshake/tools/data/outputs/live}
       binding-rel-path: identity/bindings.json
       persist-unbound: false
+
+    # 现场人脸采集编排:前端点“开始采集”→ edge 拉起算法 run_live_ws.py enroll(--session=课程id)。
+    # enabled=true 且 python/script 已配时,POST /local/enroll/start 异步拉起进程,前端轮询 /local/enroll/status。
+    # session 约定 = 课程 id,算法据此把注册产物写 {live.algo-outputs-dir}/{session}/,前端再用同一 session 拉 identities。
+    # 相机/RTSP/anchor 等固定参数放 extra-args。未接算法入口前保持 enabled=false(采脸靠人工在算法机上跑)。
+    enroll:
+      enabled: ${EDGE_ENROLL_ENABLED:false}
+      python-executable: ${ALGO_PYTHON:python}
+      script-path: scripts/run_live_ws.py
+      work-dir: ${ALGO_HOME:C:/hoopshake/tools}
+      enroll-camera: cam_03
+      seconds: 45.0
+      sample-hz: 8
+      # 相机/RTSP 由算法 configs/live.yaml 读取即可;若算法未在配置里给,再在此追加 --rtsp-json / --cam_0X。
+      extra-args: []
+      env:
+        PYTHONUNBUFFERED: "1"
+        PYTHONPATH: "."
+      timeout: 5m
 
 logging:
   level:

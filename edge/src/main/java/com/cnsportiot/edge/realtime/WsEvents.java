@@ -57,9 +57,33 @@ public final class WsEvents {
     }
 
     /**
+     * 逐动作事件(CV 上行,一个动作完成发一条)。现阶段"动作级"闭环:算法在线发这条即可,
+     * edge 转 {@link ActionFocus} 上大屏并作为单条 action_clip 落库。字段对齐算法 FastPathResult + 身份。
+     * sessionId 可空(edge 用当前会话补);身份 studentId(UUID)或 studentNo(学号)二选一;
+     * clipIndex 可空(edge 按会话+学生自增);现阶段不含角度指标(phases 仅相位时间),故只做动作级提示。
+     */
+    public record ActionEvent(
+            UUID sessionId,
+            UUID studentId,
+            String studentNo,
+            String displayName,
+            String actionType,
+            Integer clipIndex,
+            Double startMs,
+            Double endMs,
+            Double releaseMs,
+            java.util.List<java.util.Map<String, Object>> phases,
+            Boolean shotMade,
+            Double confidence,
+            String sourceCamera,
+            OffsetDateTime occurredAt) {
+    }
+
+    /**
      * 算法 v2.2.0 直播 {@code action_finalized} 的解析结果(edge 内部载荷)。
      * 身份是算法的 {@code stu_XX}(当堂)/ {@code globalId}(跨课次人脸);edge 经绑定表映射到学号/UUID。
-     * {@code angles} 是该动作 [start,end] 区间的逐时刻关节角序列(每行 {t_ms, shooting_elbow, right_knee, ...})
+     * {@code angles} 是该动作 [start,end] 区间的逐时刻关节角序列(每行 {t_ms, shooting_elbow, right_knee, ...}),
+     * 未标定或单视不可见时各关节为 null。相位名见算法约定(load/release/follow_through 等)。
      */
     public record ActionFinalized(
             String algoSessionId,
@@ -77,17 +101,6 @@ public final class WsEvents {
             List<java.util.Map<String, Object>> angles) {
     }
 
-    /** 当前聚焦的动作,大屏中央区用 */
-    public record ActionFocus(
-            UUID studentId,
-            String displayName,
-            String studentNo,
-            String actionType,
-            String actionLabel,
-            /** 关键测量值,如 {"elbow_angle": 118, "deviation": 20} */
-            java.util.Map<String, Object> measured) {
-    }
-
     /**
      * 待绑定人脸提示(→ 操作台/注册页):直播里出现未绑学号的身份在投篮,提醒教师去 {@code /local/enroll/bind} 输学号。
      * enrollSession 便于前端直接拉该注册 session 的缩略图看脸;stu_XX 无缩略图时前端仅提示“有未登记面孔”。
@@ -97,6 +110,17 @@ public final class WsEvents {
             String globalId,
             String actionType,
             OffsetDateTime occurredAt) {
+    }
+
+    /** 当前聚焦的动作,大屏中央区用 */
+    public record ActionFocus(
+            UUID studentId,
+            String displayName,
+            String studentNo,
+            String actionType,
+            String actionLabel,
+            /** 关键测量值,如 {"elbow_angle": 118, "deviation": 20} */
+            java.util.Map<String, Object> measured) {
     }
 
     /** 即时反馈提示,结构对齐云端 §10.3 items[] */
@@ -142,6 +166,13 @@ public final class WsEvents {
             UUID lessonId,
             SessionState state,
             List<String> unavailableCameras) {
+    }
+
+    /**
+     * 会话批处理完成信号(触发出云),由 {@code SessionBatchOrchestrator} 或算法经 /internal/cv/stream 上行发出。
+     * {@code SessionPublishListener} 只取 {@code sessionId};{@code source} 供日志区分来源(batch / manual-publish / cv)。
+     */
+    public record SessionProcessed(UUID sessionId, String source) {
     }
 
     /** 现场注册采集进度 */

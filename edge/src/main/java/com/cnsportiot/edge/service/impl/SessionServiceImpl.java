@@ -6,6 +6,7 @@ import com.cnsportiot.edge.service.LessonContextService;
 import com.cnsportiot.edge.camera.CameraRegistry;
 import com.cnsportiot.edge.capture.CaptureManager;
 import com.cnsportiot.edge.capture.RecordingManager;
+import com.cnsportiot.edge.cloudsync.SessionBatchOrchestrator;
 import com.cnsportiot.edge.config.EdgeProperties;
 import com.cnsportiot.edge.domain.CameraDescriptor;
 import com.cnsportiot.edge.domain.LessonContext;
@@ -48,6 +49,7 @@ public class SessionServiceImpl implements SessionService {
     private final RecordingManager recordingManager;
     private final LessonContextService lessonContextService;
     private final ObjectMapper objectMapper;
+    private final SessionBatchOrchestrator batchOrchestrator;
 
     private final AtomicReference<RecordingSession> current = new AtomicReference<>();
 
@@ -56,13 +58,15 @@ public class SessionServiceImpl implements SessionService {
                               CaptureManager captureManager,
                               RecordingManager recordingManager,
                               LessonContextService lessonContextService,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                              SessionBatchOrchestrator batchOrchestrator) {
         this.props = props;
         this.registry = registry;
         this.captureManager = captureManager;
         this.recordingManager = recordingManager;
         this.lessonContextService = lessonContextService;
         this.objectMapper = objectMapper;
+        this.batchOrchestrator = batchOrchestrator;
     }
 
     @Override
@@ -154,6 +158,10 @@ public class SessionServiceImpl implements SessionService {
         writeMeta(session);
         // TODO 预留:落 spool 一条 §10.1 事件(status=RECORDED,带 dataDir/recordedAt),联网后补传
         log.info("会话已结束 sessionId={} 片段数={}", session.sessionId(), session.segments().size());
+
+        // 下课 → 批处理 → sessionProcessed 编排。非阻塞:开关关闭时即 no-op,
+        // 开启时提交到 batchExecutor 异步跑算法,不拖慢 stop() 返回。
+        batchOrchestrator.onSessionEnded(session.sessionId(), Path.of(session.dataDir()));
 
         List<SegmentItem> segments = toSegmentItems(session);
         return new StopSessionResponse(

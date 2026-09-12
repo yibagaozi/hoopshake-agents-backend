@@ -38,6 +38,8 @@ public class RealtimeRuleEngine {
     /** (studentId|checkpointId) → 上次推送时刻(ms)。 */
     private final ConcurrentMap<String, Long> lastEmit = new ConcurrentHashMap<>();
 
+    // 有两个构造器(生产 2 参 / 测试 3 参带 Clock),Spring 需 @Autowired 指明用哪个,
+    // 否则回落到不存在的无参构造器而抛 NoSuchMethodException,边缘上不来。
     @Autowired
     public RealtimeRuleEngine(CheckpointCatalog catalog, CheckpointProperties props) {
         this(catalog, props, Clock.systemUTC());

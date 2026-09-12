@@ -34,7 +34,8 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 算法 v2.2.0 直播动作事件接线:订阅 {@link WsEventType#ACTION_FINALIZED} 一条投篮动作:
+ * 算法 v2.2.0 直播动作事件接线:订阅 {@link WsEventType#ACTION_FINALIZED}(由 {@link com.cnsportiot.edge.cv.AlgoLiveClient}
+ * 从算法 WS 收并解析),一条投篮动作:
  * <ol>
  *   <li>身份绑定:{@code global_id}/{@code stu_XX} → 学号 → studentId(经 {@link IdentityBindingStore});</li>
  *   <li>大屏:发 {@link WsEventType#ACTION_FOCUS}(谁、什么动作、命中);</li>

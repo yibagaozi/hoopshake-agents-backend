@@ -37,6 +37,7 @@ public class EdgeProperties {
     private Cv cv = new Cv();
 
     private Minio minio = new Minio();
+
     private Publish publish = new Publish();
 
     private Ingest ingest = new Ingest();
@@ -44,6 +45,8 @@ public class EdgeProperties {
     private Batch batch = new Batch();
 
     private Live live = new Live();
+
+    private Enroll enroll = new Enroll();
 
     @Getter
     @Setter
@@ -110,7 +113,7 @@ public class EdgeProperties {
 
     /**
      * 对象存储(MinIO / S3 兼容)。逐帧 motion.jsonl 与 gallery 特征上传到此,
-     * 回填 action_clip.motion_uri / reid_gallery.storage_uri。默认关闭:未配置时用 NoopObjectStore
+     * 回填 action_clip.motion_uri / reid_gallery.storage_uri。默认关闭:未配置时用 NoopObjectStore。
      */
     @Getter
     @Setter
@@ -129,7 +132,7 @@ public class EdgeProperties {
         private String publicBaseUrl;
     }
 
-    /** 会话结束出云:读算法交接文件 → 上传 motion → 推 action-clips / session / gallery */
+    /** 会话结束出云:读算法交接文件 → 上传 motion → 推 action-clips / session / gallery。 */
     @Getter
     @Setter
     public static class Publish {
@@ -141,7 +144,7 @@ public class EdgeProperties {
     /**
      * 课后算法批处理编排:下课(或手动触发)→ 对该 session 的 raw/ 跑算法批处理 →
      * 算法写 {@code cloud/ingest.json} 交接文件 → 编排器发 {@code sessionProcessed} → 出云。
-     * 默认关闭:未接入算法入口时保持原行为(下课只停录制,出云靠手动 /publish 或 CV 上行)
+     * 默认关闭:未接入算法入口时保持原行为(下课只停录制,出云靠手动 /publish 或 CV 上行)。
      */
     @Getter
     @Setter
@@ -167,12 +170,6 @@ public class EdgeProperties {
     @Getter
     @Setter
     public static class Live {
-        /** 直播对接总开关。开启后 AlgoLiveClient 连算法 WS 收动作事件。 */
-        private boolean enabled = false;
-        /** 算法 WS 服务地址(算法 run 起的服务端,edge 连它)。 */
-        private String wsUrl = "ws://127.0.0.1:8765/";
-        /** 断线重连间隔。 */
-        private Duration reconnectInterval = Duration.ofSeconds(3);
         /** 算法直播产出根目录(读 enrollment.json + 注册缩略图),= 算法仓库 data/outputs/live。 */
         private String algoOutputsDir = "C:/hoopshake/algo/data/outputs/live";
         /** 身份绑定表缓存文件(相对 data-root)。 */
@@ -181,13 +178,45 @@ public class EdgeProperties {
         private boolean persistUnbound = false;
     }
 
-    /** 出云选路。批处理(session/clips/gallery)可走 MQ;实时反馈始终走 HTTP */
+    /**
+     * 现场人脸采集编排:前端点“开始采集” → edge 拉起算法 {@code run_live_ws.py enroll --session={课程id}} →
+     * 算法把注册结果写 {@code {live.algoOutputsDir}/{session}/enrollment.json} + 缩略图 →
+     * 前端轮询 {@code /local/enroll/status} 转 SUCCEEDED 后拉 {@code /local/enroll/identities?session={课程id}} 绑学号。
+     * <p>约定 {@code session = 课程id(lessonId)},故前端 start / status / identities 三处用同一个值。
+     * 默认关闭:未接算法入口时保持原行为(采脸靠人工在算法机上跑)。
+     */
+    @Getter
+    @Setter
+    public static class Enroll {
+        /** 编排总开关。关时 {@code POST /local/enroll/start} 报 ENROLL_UNAVAILABLE。 */
+        private boolean enabled = false;
+        /** python 可执行文件(或虚拟环境内的 python)。 */
+        private String pythonExecutable = "python";
+        /** {@code run_live_ws.py} 相对 workDir 的路径。 */
+        private String scriptPath = "scripts/run_live_ws.py";
+        /** 算法仓库根目录({@code PYTHONPATH=.} 相对此目录);null 用进程当前目录。 */
+        private String workDir;
+        /** 默认采集机位(可被请求覆盖)。 */
+        private String enrollCamera = "cam_03";
+        /** 默认采集时长秒(可被请求覆盖)。 */
+        private double seconds = 45.0;
+        /** 默认采样帧率(可被请求覆盖)。 */
+        private int sampleHz = 8;
+        /** 追加到命令尾部的固定参数(相机/RTSP/anchor 等),如 {@code --rtsp-json xxx} 或 {@code --cam_03 rtsp://...}。 */
+        private List<String> extraArgs = new ArrayList<>();
+        /** 注入子进程的环境变量;python 建议 {@code PYTHONUNBUFFERED=1} 以实时看日志。 */
+        private Map<String, String> env = new LinkedHashMap<>();
+        /** 单次采集墙钟上限,超时强杀并标记 FAILED。 */
+        private Duration timeout = Duration.ofMinutes(5);
+    }
+
+    /** 出云选路。批处理(session/clips/gallery)可走 MQ;实时反馈始终走 HTTP。 */
     @Getter
     @Setter
     public static class Ingest {
         private Mq mq = new Mq();
 
-        /** 批处理出云 MQ(RabbitMQ)。关闭时 SessionCloudPublisher 走 HTTP(默认) */
+        /** 批处理出云 MQ(RabbitMQ)。关闭时 SessionCloudPublisher 走 HTTP(默认)。 */
         @Getter
         @Setter
         public static class Mq {

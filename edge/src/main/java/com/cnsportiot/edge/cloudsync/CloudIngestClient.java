@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.util.List;
 import java.util.Map;
@@ -50,9 +51,16 @@ public class CloudIngestClient {
             List<Map<String, Object>> students = (List<Map<String, Object>>) data.get("students");
             return students.stream().map(CloudIngestClient::toRosterEntry).toList();
 
+        } catch (RestClientResponseException e) {
+            // 云端可达但返回了 HTTP 错误状态(404 路径错 / 401 令牌错 / 5xx),不是"不可达"
+            log.error("拉取名单被云端拒绝 lessonId={} status={} body={}",
+                    lessonId, e.getStatusCode(), e.getResponseBodyAsString(), e);
+            throw new BusinessException(EdgeErrorCode.CLOUD_REJECTED,
+                    "拉取参课名单失败:云端返回 HTTP " + e.getStatusCode().value());
         } catch (RestClientException e) {
-            log.error("拉取名单失败 lessonId={}", lessonId, e);
-            throw new BusinessException(EdgeErrorCode.CLOUD_UNREACHABLE, "拉取参课名单失败");
+            // 纯 I/O:连接被拒/超时/DNS —— 才是真正的不可达
+            log.error("拉取名单网络不可达 lessonId={}", lessonId, e);
+            throw new BusinessException(EdgeErrorCode.CLOUD_UNREACHABLE, "拉取参课名单失败:云端不可达");
         }
     }
 

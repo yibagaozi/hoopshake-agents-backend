@@ -1,4 +1,12 @@
 # 实时 2D 规则引擎 —— 检查点词表
+# 见 docs/edge/realtime-rule-engine.md。经 application.yaml 的 spring.config.import 引入,绑定到 CheckpointProperties。
+# 口径与算法侧 configs/actions/*.yaml 一致,这里是“直播近实时”变体:
+#   - 可用量来自算法 action_finalized.angles[](标定后):elbow_angle←shooting_elbow、knee_angle←两膝较屈者、
+#     wrist_angle←shooting_wrist(LiveActionListener 折算);未标定时算法给 null → 自动跳过。
+#   - metric 名须与折算出的键一致(elbow_angle / knee_angle / wrist_angle)。
+#   - severity 仅 MINOR/MAJOR(越界);达标且配了 cue-ok → POSITIVE 正反馈。
+#   - release_height_m / trunk_lean_deg 需算法补“出手高度/躯干角”量(当前 live angles 不含),先保留、暂不触发。
+
 hoopshake:
   edge:
     rules:

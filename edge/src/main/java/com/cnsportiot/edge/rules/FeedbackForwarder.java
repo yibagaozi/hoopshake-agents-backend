@@ -76,7 +76,12 @@ public class FeedbackForwarder {
     private static Map<String, Object> toItem(RuleHit h) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("eventId", h.eventId());
-        m.put("studentId", h.studentId().toString());
+        // 身份二选一:算法自管人脸→学号绑定时只有 studentNo,云端据此解析 studentId
+        if (h.studentId() != null) {
+            m.put("studentId", h.studentId().toString());
+        } else if (h.studentNo() != null && !h.studentNo().isBlank()) {
+            m.put("studentNo", h.studentNo());
+        }
         m.put("occurredAt", h.occurredAt().toString());
         if (h.timestampMs() != null) {
             m.put("timestampMs", h.timestampMs());

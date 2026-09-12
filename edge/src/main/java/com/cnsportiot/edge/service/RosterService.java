@@ -19,6 +19,6 @@ public interface RosterService {
     /** 按完整学号精确匹配,供现场注册判断该生是否在本课名单内 */
     MatchResponse match(String studentNo);
 
-    /** 按学号查名单条目(供人脸→学号绑定时回填 studentId);名单未拉或查无返回空 */
+    /** 按学号查名单条目(供人脸→学号绑定时回填 studentId);名单未拉或查无返回空。 */
     Optional<RosterEntry> find(String studentNo);
 }
