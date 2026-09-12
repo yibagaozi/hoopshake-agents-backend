@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.cnsportiot.cloud.meta.Vocabulary;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -49,8 +50,8 @@ public class LessonServiceImpl implements LessonService {
     private final InstantFeedbackRepository instantFeedbackRepository;
     private final CheckpointKnowledgeRepository checkpointKnowledgeRepository;
 
-    private static final Set<String> VALID_ACTION_TYPES = new HashSet<>(Arrays.asList("shot", "layup", "dribble"));
-    private static final Set<String> VALID_CHECKPOINTS = new HashSet<>(Arrays.asList("stance", "hand", "balance"));
+    private static final Set<String> VALID_ACTION_TYPES = Vocabulary.ACTION_IDS;
+    private static final Set<String> VALID_CHECKPOINTS = Vocabulary.CHECKPOINT_IDS;
 
     /** §5.1 创建课程 */
     @Override
