@@ -56,6 +56,27 @@ public final class WsEvents {
             OffsetDateTime occurredAt) {
     }
 
+    /**
+     * 算法 v2.2.0 直播 {@code action_finalized} 的解析结果(edge 内部载荷)。
+     * 身份是算法的 {@code stu_XX}(当堂)/ {@code globalId}(跨课次人脸);edge 经绑定表映射到学号/UUID。
+     * {@code angles} 是该动作 [start,end] 区间的逐时刻关节角序列(每行 {t_ms, shooting_elbow, right_knee, ...})
+     */
+    public record ActionFinalized(
+            String algoSessionId,
+            String studentLocalId,
+            String globalId,
+            String actionType,
+            Double startMs,
+            Double endMs,
+            Double releaseMs,
+            Boolean made,
+            Double confidence,
+            String identityConfidence,
+            String identitySource,
+            List<java.util.Map<String, Object>> phases,
+            List<java.util.Map<String, Object>> angles) {
+    }
+
     /** 当前聚焦的动作,大屏中央区用 */
     public record ActionFocus(
             UUID studentId,
@@ -65,6 +86,17 @@ public final class WsEvents {
             String actionLabel,
             /** 关键测量值,如 {"elbow_angle": 118, "deviation": 20} */
             java.util.Map<String, Object> measured) {
+    }
+
+    /**
+     * 待绑定人脸提示(→ 操作台/注册页):直播里出现未绑学号的身份在投篮,提醒教师去 {@code /local/enroll/bind} 输学号。
+     * enrollSession 便于前端直接拉该注册 session 的缩略图看脸;stu_XX 无缩略图时前端仅提示“有未登记面孔”。
+     */
+    public record EnrollNeeded(
+            String studentLocalId,
+            String globalId,
+            String actionType,
+            OffsetDateTime occurredAt) {
     }
 
     /** 即时反馈提示,结构对齐云端 §10.3 items[] */

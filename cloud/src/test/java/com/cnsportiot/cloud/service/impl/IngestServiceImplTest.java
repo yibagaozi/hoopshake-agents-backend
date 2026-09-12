@@ -1,6 +1,7 @@
 package com.cnsportiot.cloud.service.impl;
 
 import com.cnsportiot.cloud.domain.entity.ActionClip;
+import com.cnsportiot.cloud.domain.entity.InstantFeedback;
 import com.cnsportiot.cloud.domain.entity.ReidGallery;
 import com.cnsportiot.cloud.domain.entity.SessionAggregate;
 import com.cnsportiot.cloud.domain.entity.Student;
@@ -165,6 +166,46 @@ class IngestServiceImplTest {
         assertThat(((Number) mra.get("right_elbow")).doubleValue()).isEqualTo(160.0);
     }
 
+    @Test void ingestActionClips_resolvesByStudentNo_savesWithResolvedId() {
+        Student s = mock(Student.class);
+        when(s.getId()).thenReturn(STU_A);
+        when(studentRepo.findByStudentNo("2021001")).thenReturn(Optional.of(s));
+        when(clipRepo.existsBySessionIdAndStudentIdAndClipIndex(SESSION, STU_A, 0)).thenReturn(false);
+        ArgumentCaptor<ActionClip> cap = ArgumentCaptor.forClass(ActionClip.class);
+        when(clipRepo.save(cap.capture())).thenAnswer(i -> i.getArgument(0));
+
+        BatchAckResponse ack = ingest.ingestActionClips(new ActionClipBatchRequest(
+                SESSION, List.of(clipByNo("2021001", 0, "layup"))));
+
+        assertThat(ack.accepted()).isEqualTo(1);
+        assertThat(cap.getValue().getStudentId()).isEqualTo(STU_A);   // 学号→UUID 已解析
+    }
+
+    @Test void ingestActionClips_unresolvableStudentNo_rejectedNotSaved() {
+        when(studentRepo.findByStudentNo("nope")).thenReturn(Optional.empty());
+
+        BatchAckResponse ack = ingest.ingestActionClips(new ActionClipBatchRequest(
+                SESSION, List.of(clipByNo("nope", 0, "layup"))));
+
+        assertThat(ack.accepted()).isZero();
+        assertThat(ack.rejected()).extracting(RejectedItem::eventId).containsExactly("nope#0");
+        verify(clipRepo, never()).save(any());
+    }
+
+    @Test void ingestActionClips_studentIdTakesPrecedence_noStudentNoLookup() {
+        when(clipRepo.existsBySessionIdAndStudentIdAndClipIndex(SESSION, STU_A, 0)).thenReturn(false);
+        when(clipRepo.save(any())).thenAnswer(i -> i.getArgument(0));
+        // 同时给 studentId 和 studentNo:studentId 优先,不应查学号
+        var item = new ActionClipBatchRequest.ClipItem(
+                STU_A, 0, "layup", BigDecimal.ZERO, BigDecimal.TEN,
+                null, null, null, null, null, null, null, null, "2021001");
+
+        BatchAckResponse ack = ingest.ingestActionClips(new ActionClipBatchRequest(SESSION, List.of(item)));
+
+        assertThat(ack.accepted()).isEqualTo(1);
+        verify(studentRepo, never()).findByStudentNo(any());
+    }
+
     // ================= ingestFeedback =================
 
     @Test void ingestFeedback_dedupByEventId_andDivDuplicated() {
@@ -182,6 +223,21 @@ class IngestServiceImplTest {
         assertThat(ack.accepted()).isEqualTo(1);
         assertThat(ack.duplicated()).isEqualTo(2);
         assertThat(ack.rejected()).isEmpty();
+    }
+
+    @Test void ingestFeedback_resolvesByStudentNo_savesWithResolvedId() {
+        Student s = mock(Student.class);
+        when(s.getId()).thenReturn(STU_A);
+        when(studentRepo.findByStudentNo("2021001")).thenReturn(Optional.of(s));
+        when(feedbackRepo.existsByEventId("e1")).thenReturn(false);
+        ArgumentCaptor<InstantFeedback> cap = ArgumentCaptor.forClass(InstantFeedback.class);
+        when(feedbackRepo.save(cap.capture())).thenAnswer(i -> i.getArgument(0));
+
+        BatchAckResponse ack = ingest.ingestFeedback(new InstantFeedbackBatchRequest(
+                SESSION, List.of(fbByNo("e1", "2021001"))));
+
+        assertThat(ack.accepted()).isEqualTo(1);
+        assertThat(cap.getValue().getStudentId()).isEqualTo(STU_A);
     }
 
     @Test void ingestFeedback_genericError_rejectedWithEventId() {
@@ -295,5 +351,19 @@ class IngestServiceImplTest {
         return new InstantFeedbackBatchRequest.Item(
                 eventId, STU_A, OffsetDateTime.now(), null, "layup", "cp1",
                 null, "抬肘", null, null, null);
+    }
+
+    /** 仅学号、无 studentId 的片段(走服务端学号解析)。 */
+    private ActionClipBatchRequest.ClipItem clipByNo(String studentNo, int idx, String action) {
+        return new ActionClipBatchRequest.ClipItem(
+                null, idx, action, BigDecimal.ZERO, BigDecimal.TEN,
+                null, null, null, null, null, null, null, null, studentNo);
+    }
+
+    /** 仅学号、无 studentId 的反馈(走服务端学号解析)。 */
+    private InstantFeedbackBatchRequest.Item fbByNo(String eventId, String studentNo) {
+        return new InstantFeedbackBatchRequest.Item(
+                eventId, null, OffsetDateTime.now(), null, "layup", "cp1",
+                null, "抬肘", null, null, null, studentNo);
     }
 }

@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,6 +35,15 @@ public class EdgeProperties {
     private Cloud cloud = new Cloud();
 
     private Cv cv = new Cv();
+
+    private Minio minio = new Minio();
+    private Publish publish = new Publish();
+
+    private Ingest ingest = new Ingest();
+
+    private Batch batch = new Batch();
+
+    private Live live = new Live();
 
     @Getter
     @Setter
@@ -96,6 +106,95 @@ public class EdgeProperties {
         private Map<String, String> env = new LinkedHashMap<>();
         private boolean autoRestart = true;
         private int maxFailures = 5;
+    }
+
+    /**
+     * 对象存储(MinIO / S3 兼容)。逐帧 motion.jsonl 与 gallery 特征上传到此,
+     * 回填 action_clip.motion_uri / reid_gallery.storage_uri。默认关闭:未配置时用 NoopObjectStore
+     */
+    @Getter
+    @Setter
+    public static class Minio {
+        private boolean enabled = false;
+        private String endpoint = "http://127.0.0.1:9000";
+        private String accessKey;
+        private String secretKey;
+        private String bucket = "hoopshake";
+        /**
+         * 回填 URI 的方案:{@code s3}(默认,返回 {@code s3://bucket/key},不可点开但稳定不透明)
+         * 或 {@code url}(返回 {@code {public-base-url}/bucket/key},可直接拉取)。
+         */
+        private String uriScheme = "s3";
+        /** uriScheme=url 时用于拼可访问地址;缺省用 endpoint。 */
+        private String publicBaseUrl;
+    }
+
+    /** 会话结束出云:读算法交接文件 → 上传 motion → 推 action-clips / session / gallery */
+    @Getter
+    @Setter
+    public static class Publish {
+        private boolean enabled = true;
+        /** 算法在 session 目录下写的交接文件相对路径(cloud 就绪载荷)。 */
+        private String handoffRelPath = "cloud/ingest.json";
+    }
+
+    /**
+     * 课后算法批处理编排:下课(或手动触发)→ 对该 session 的 raw/ 跑算法批处理 →
+     * 算法写 {@code cloud/ingest.json} 交接文件 → 编排器发 {@code sessionProcessed} → 出云。
+     * 默认关闭:未接入算法入口时保持原行为(下课只停录制,出云靠手动 /publish 或 CV 上行)
+     */
+    @Getter
+    @Setter
+    public static class Batch {
+        /** 编排总开关。关时 stop() 不自动跑批处理,{@code POST /local/session/{id}/process} 报 BATCH_UNAVAILABLE。 */
+        private boolean enabled = false;
+        /** 下课(stop)是否自动触发;false 时只能经 {@code POST /local/session/{id}/process} 手动触发。 */
+        private boolean autoOnStop = true;
+        /** 批处理命令行模板,首元素为可执行文件;支持占位符 {sessionId} {dataDir} {rawDir} {cloudDir}。 */
+        private List<String> command = new ArrayList<>();
+        private String workDir;
+        /** 注入子进程的环境变量;python 建议 PYTHONUNBUFFERED=1。 */
+        private Map<String, String> env = new LinkedHashMap<>();
+        /** 单次批处理墙钟上限,超时强杀且不出云。 */
+        private Duration timeout = Duration.ofMinutes(30);
+    }
+
+    /**
+     * 算法 v2.2.0 直播对接。WS 沿用原设计:<b>算法作客户端连 edge 的 {@code /internal/cv/stream} 服务端并推事件</b>
+     * (edge 不反向连算法),故此处无 WS 地址;edge 收 action_finalized/timeline_gap 后经 LiveActionListener 处理。
+     * 身份绑定表(人脸→学号→UUID)缓存本地,不上云。
+     */
+    @Getter
+    @Setter
+    public static class Live {
+        /** 直播对接总开关。开启后 AlgoLiveClient 连算法 WS 收动作事件。 */
+        private boolean enabled = false;
+        /** 算法 WS 服务地址(算法 run 起的服务端,edge 连它)。 */
+        private String wsUrl = "ws://127.0.0.1:8765/";
+        /** 断线重连间隔。 */
+        private Duration reconnectInterval = Duration.ofSeconds(3);
+        /** 算法直播产出根目录(读 enrollment.json + 注册缩略图),= 算法仓库 data/outputs/live。 */
+        private String algoOutputsDir = "C:/hoopshake/algo/data/outputs/live";
+        /** 身份绑定表缓存文件(相对 data-root)。 */
+        private String bindingRelPath = "identity/bindings.json";
+        /** 缺身份绑定时:是否仍把动作以“未归属”落库(false=只上屏不落库)。 */
+        private boolean persistUnbound = false;
+    }
+
+    /** 出云选路。批处理(session/clips/gallery)可走 MQ;实时反馈始终走 HTTP */
+    @Getter
+    @Setter
+    public static class Ingest {
+        private Mq mq = new Mq();
+
+        /** 批处理出云 MQ(RabbitMQ)。关闭时 SessionCloudPublisher 走 HTTP(默认) */
+        @Getter
+        @Setter
+        public static class Mq {
+            private boolean enabled = false;
+            /** 与云端 hoopshake.ingest 一致的 topic 交换机名。 */
+            private String exchange = "hoopshake.ingest";
+        }
     }
 
 }

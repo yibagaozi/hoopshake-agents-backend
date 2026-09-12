@@ -85,10 +85,22 @@ public class IngestServiceImpl implements IngestService {
         int accepted = 0;
         int duplicated = 0;
         List<RejectedItem> rejected = new ArrayList<>();
+        Map<String, UUID> idCache = new java.util.HashMap<>();
+        // 本批触及的 (student, action) 组,供派生复用(含重复项:其组在库里已有数据也要重算)
+        Set<AggKey> touched = new LinkedHashSet<>();
 
         for (var item : request.items()) {
+            UUID studentId = resolveStudentId(item.studentId(), item.studentNo(), idCache);
+            if (studentId == null) {
+                rejected.add(new RejectedItem(
+                        idLabel(item.studentNo()) + "#" + item.clipIndex(),
+                        "无法解析学生身份(studentId/studentNo 均缺失或学号不存在)"));
+                continue;
+            }
+            touched.add(new AggKey(studentId, item.actionType()));
+
             if (actionClipRepository.existsBySessionIdAndStudentIdAndClipIndex(
-                    request.sessionId(), item.studentId(), item.clipIndex())) {
+                    request.sessionId(), studentId, item.clipIndex())) {
                 duplicated++;
                 continue;
             }
@@ -96,7 +108,7 @@ public class IngestServiceImpl implements IngestService {
             try {
                 ActionClip clip = ActionClip.builder()
                         .sessionId(request.sessionId())
-                        .studentId(item.studentId())
+                        .studentId(studentId)
                         .clipIndex(item.clipIndex())
                         .actionType(item.actionType())
                         .startMs(item.startMs())
@@ -116,29 +128,51 @@ public class IngestServiceImpl implements IngestService {
                 duplicated++;
             } catch (Exception e) {
                 rejected.add(new RejectedItem(
-                        item.studentId() + "#" + item.clipIndex(), e.getMessage()));
+                        studentId + "#" + item.clipIndex(), e.getMessage()));
             }
         }
 
         // L2 派生:重算本批触及的 (student, action) 的 session_aggregate(见 Gap-1)。
-        deriveAggregates(request.sessionId(), request.items());
+        deriveAggregates(request.sessionId(), touched);
 
         log.info("ActionClip 批量入库 sessionId={} accepted={} duplicated={} rejected={}",
                 request.sessionId(), accepted, duplicated, rejected.size());
         return new BatchAckResponse(accepted, duplicated, rejected);
     }
 
+    /** (student, action) 派生分组键。 */
+    private record AggKey(UUID studentId, String actionType) {}
+
+    /**
+     * 解析入库身份:优先 studentId(UUID);缺失时按 studentNo(学号)查 student 表。
+     * 都没有或学号查不到→返回 null(调用方拒绝该条)。同批同一学号只查一次。
+     */
+    private UUID resolveStudentId(UUID studentId, String studentNo, Map<String, UUID> cache) {
+        if (studentId != null) {
+            return studentId;
+        }
+        if (studentNo == null || studentNo.isBlank()) {
+            return null;
+        }
+        String key = studentNo.trim();
+        if (cache.containsKey(key)) {
+            return cache.get(key);
+        }
+        UUID resolved = studentRepository.findByStudentNo(key).map(Student::getId).orElse(null);
+        cache.put(key, resolved);
+        return resolved;
+    }
+
+    private static String idLabel(String studentNo) {
+        return studentNo == null || studentNo.isBlank() ? "?" : studentNo;
+    }
+
     /**
      * 从已入库的片段重算 session_aggregate(幂等 upsert)。逐 (student, action) 组独立 try/catch,
      * 单组失败不影响其它组与已入库片段。派生规则见 {@link SessionAggregateDeriver}。
      */
-    private void deriveAggregates(UUID sessionId, List<ActionClipBatchRequest.ClipItem> items) {
-        record Key(UUID studentId, String actionType) {}
-        Set<Key> keys = new LinkedHashSet<>();
-        for (var it : items) {
-            keys.add(new Key(it.studentId(), it.actionType()));
-        }
-        for (Key k : keys) {
+    private void deriveAggregates(UUID sessionId, Set<AggKey> keys) {
+        for (AggKey k : keys) {
             try {
                 List<ActionClip> all = actionClipRepository
                         .findBySessionIdAndStudentIdOrderByClipIndex(sessionId, k.studentId());
@@ -179,10 +213,17 @@ public class IngestServiceImpl implements IngestService {
         int accepted = 0;
         int duplicated = 0;
         List<RejectedItem> rejected = new ArrayList<>();
+        Map<String, UUID> idCache = new java.util.HashMap<>();
 
         for (var item : request.items()) {
             if (instantFeedbackRepository.existsByEventId(item.eventId())) {
                 duplicated++;
+                continue;
+            }
+            UUID studentId = resolveStudentId(item.studentId(), item.studentNo(), idCache);
+            if (studentId == null) {
+                rejected.add(new RejectedItem(item.eventId(),
+                        "无法解析学生身份(studentId/studentNo 均缺失或学号不存在)"));
                 continue;
             }
 
@@ -190,7 +231,7 @@ public class IngestServiceImpl implements IngestService {
                 InstantFeedback fb = InstantFeedback.builder()
                         .eventId(item.eventId())
                         .sessionId(request.sessionId())
-                        .studentId(item.studentId())
+                        .studentId(studentId)
                         .occurredAt(item.occurredAt())
                         .timestampMs(item.timestampMs())
                         .actionType(item.actionType())
