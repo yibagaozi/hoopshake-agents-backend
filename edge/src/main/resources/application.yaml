@@ -14,7 +14,7 @@ hoopshake:
   edge:
     edge-id: edge-01
 
-    data-root: C:/hoopshake/data
+    data-root: C:/hoopshake/Basketball_inclass_system
 
     ffmpeg-path: C:/Program Files/ffmpeg-7.1.1/bin/ffmpeg.exe
 
@@ -101,18 +101,18 @@ hoopshake:
     # 占位符 {sessionId} {dataDir} {rawDir}(=dataDir/raw) {cloudDir}(=dataDir/cloud) 运行时替换。
     # 未接入算法入口前保持 enabled=false:下课只停录制,出云走手动 POST /local/session/{id}/publish 或 CV 上行 sessionProcessed。
     batch:
-      enabled: ${EDGE_BATCH_ENABLED:false}
+      enabled: ${EDGE_BATCH_ENABLED:true}
       auto-on-stop: true
       command:
-        - python
-        - C:/hoopshake/algo/run_session.py
+        - C:/Users/Eirin/miniforge3/envs/basketball_classroom/python.exe
+        - scripts/run_session.py
         - --session
         - "{sessionId}"
         - --raw
         - "{rawDir}"
         - --cloud
         - "{cloudDir}"
-      work-dir: C:/hoopshake/algo
+      work-dir: C:/hoopshake/Basketball_inclass_system
       env:
         PYTHONUNBUFFERED: "1"
       timeout: 30m
