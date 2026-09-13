@@ -34,7 +34,8 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 算法 v2.2.0 直播动作事件接线:订阅 {@link WsEventType#ACTION_FINALIZED} 一条投篮动作:
+ * 算法 v2.2.0 直播动作事件接线:订阅 {@link WsEventType#ACTION_FINALIZED}(由 {@link com.cnsportiot.edge.cv.AlgoLiveClient}
+ * 从算法 WS 收并解析),一条投篮动作:
  * <ol>
  *   <li>身份绑定:{@code global_id}/{@code stu_XX} → 学号 → studentId(经 {@link IdentityBindingStore});</li>
  *   <li>大屏:发 {@link WsEventType#ACTION_FOCUS}(谁、什么动作、命中);</li>
@@ -184,7 +185,20 @@ public class LiveActionListener {
         if (a.made() != null) {
             measured.put("made", a.made());
         }
-        return new WsEvents.ActionFocus(studentId, displayName, studentNo, a.actionType(), a.actionType(), measured);
+        return new WsEvents.ActionFocus(studentId, displayName, studentNo, a.actionType(), actionLabel(a.actionType()), measured);
+    }
+
+    /** 动作类型 → 中文展示名(与 cloud /api/meta/vocabulary 的 actions[].label 一致);未知则原样返回。 */
+    private static final Map<String, String> ACTION_LABELS = Map.of(
+            "free_throw", "罚篮",
+            "jump_shot", "跳投",
+            "layup", "上篮",
+            "triple_threat", "突破",
+            "pass", "传球",
+            "unknown", "未知");
+
+    private static String actionLabel(String actionType) {
+        return actionType == null ? null : ACTION_LABELS.getOrDefault(actionType, actionType);
     }
 
     /** action-clips 单条 body(字段对齐 IngestRequests.ClipItem);score 带出手相位角供云端派生标准度。 */
