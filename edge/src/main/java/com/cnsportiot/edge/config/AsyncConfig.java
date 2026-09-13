@@ -39,6 +39,22 @@ public class AsyncConfig {
         return executor;
     }
 
+    /**
+     * 现场人脸采集:单线程(单机单采集机位,同一时刻只跑一个 enroll 进程),
+     * 墙钟数十秒到数分钟,与采集/出云/批处理线程池隔离。
+     */
+    @Bean
+    public TaskExecutor enrollExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(4);
+        executor.setThreadNamePrefix("enroll-");
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
+
     /** WS 扇出 */
     @Bean
     public TaskExecutor wsBroadcastExecutor() {

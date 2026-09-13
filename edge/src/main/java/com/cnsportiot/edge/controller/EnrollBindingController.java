@@ -5,6 +5,8 @@ import com.cnsportiot.contracts.error.BusinessException;
 import com.cnsportiot.contracts.error.ErrorCode;
 import com.cnsportiot.edge.config.EdgeProperties;
 import com.cnsportiot.edge.domain.RosterEntry;
+import com.cnsportiot.edge.identity.EnrollLauncher;
+import com.cnsportiot.edge.identity.EnrollLauncher.EnrollRunStatus;
 import com.cnsportiot.edge.identity.IdentityBindingStore;
 import com.cnsportiot.edge.identity.IdentityBindingStore.Binding;
 import com.cnsportiot.edge.service.RosterService;
@@ -39,13 +41,34 @@ public class EnrollBindingController {
     private final IdentityBindingStore bindings;
     private final RosterService rosterService;
     private final ObjectMapper objectMapper;
+    private final EnrollLauncher enrollLauncher;
 
     public EnrollBindingController(EdgeProperties props, IdentityBindingStore bindings,
-                                   RosterService rosterService, ObjectMapper objectMapper) {
+                                   RosterService rosterService, ObjectMapper objectMapper,
+                                   EnrollLauncher enrollLauncher) {
         this.props = props;
         this.bindings = bindings;
         this.rosterService = rosterService;
         this.objectMapper = objectMapper;
+        this.enrollLauncher = enrollLauncher;
+    }
+
+    /**
+     * 开始现场人脸采集:edge 拉起算法 enroll 进程(异步),立即返回 RUNNING。
+     * {@code session} 约定 = 课程 id;算法据此把注册产物写 {@code {algoOutputsDir}/{session}/},
+     * 前端轮询 {@link #status} 转 SUCCEEDED 后用同一 session 调 {@link #identities}。
+     */
+    @PostMapping("/start")
+    public ApiResponse<EnrollRunStatus> start(@Valid @RequestBody StartEnrollRequest request) {
+        return ApiResponse.ok(enrollLauncher.start(
+                request.session(), request.enrollCamera(), request.seconds(),
+                request.sampleHz(), request.expectedPersons()));
+    }
+
+    /** 采集状态轮询:RUNNING/SUCCEEDED/FAILED/NONE(从未跑过)。前端据此在 SUCCEEDED 后拉注册结果。 */
+    @GetMapping("/status")
+    public ApiResponse<EnrollRunStatus> status(@RequestParam String session) {
+        return ApiResponse.ok(enrollLauncher.status(session));
     }
 
     /** 列出算法某注册 session 采到的人(stu_XX + 是否有缩略图),供注册页看脸绑学号。 */
@@ -135,6 +158,14 @@ public class EnrollBindingController {
     }
 
     // ---- DTO ----
+
+    /** 开始采集入参。session 必填(= 课程 id);其余可空,空则用 hoopshake.edge.enroll.* 默认。 */
+    public record StartEnrollRequest(
+            @NotBlank String session,
+            String enrollCamera,
+            Double seconds,
+            Integer sampleHz,
+            Integer expectedPersons) {}
 
     public record EnrolledIdentities(String session, String enrollCamera, List<EnrolledPerson> people) {}
 
