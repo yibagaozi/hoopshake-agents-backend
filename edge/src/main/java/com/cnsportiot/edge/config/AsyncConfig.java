@@ -67,5 +67,17 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean
+    public TaskExecutor batchExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);      // 单线程:单机单会话,批处理墙钟可数十分钟
+        executor.setQueueCapacity(8);
+        executor.setThreadNamePrefix("session-batch-");
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
 }
 

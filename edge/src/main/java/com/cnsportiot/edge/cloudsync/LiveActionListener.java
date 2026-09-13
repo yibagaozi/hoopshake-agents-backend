@@ -34,7 +34,8 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 算法 v2.2.0 直播动作事件接线:订阅 {@link WsEventType#ACTION_FINALIZED} 一条投篮动作:
+ * 算法 v2.2.0 直播动作事件接线:订阅 {@link WsEventType#ACTION_FINALIZED}
+ * 从算法 WS 收并解析),一条投篮动作:
  * <ol>
  *   <li>身份绑定:{@code global_id}/{@code stu_XX} → 学号 → studentId(经 {@link IdentityBindingStore});</li>
  *   <li>大屏:发 {@link WsEventType#ACTION_FOCUS}(谁、什么动作、命中);</li>
@@ -98,7 +99,12 @@ public class LiveActionListener {
             return;
         }
 
-        Optional<IdentityBindingStore.Binding> bound = bindings.resolve(a.globalId(), a.studentLocalId());
+        // 解析用会话 = 算法回显的 session_id(= run 的 --session = 课程id);缺则回落到当前上课的 lessonId。
+        // 这样即使 edge 重启(当堂内存 byLocalId 丢失)、算法又没给 global_id,也能命中按会话持久化的绑定,
+        // displayName 才不会回落成 stu_XX。
+        String bindSession = (a.algoSessionId() != null && !a.algoSessionId().isBlank())
+                ? a.algoSessionId() : currentLessonId();
+        Optional<IdentityBindingStore.Binding> bound = bindings.resolve(bindSession, a.globalId(), a.studentLocalId());
         String studentNo = bound.map(IdentityBindingStore.Binding::studentNo).orElse(null);
         UUID studentId = bound.map(IdentityBindingStore.Binding::studentId)
                 .map(LiveActionListener::parseUuid).orElse(null);
@@ -184,7 +190,20 @@ public class LiveActionListener {
         if (a.made() != null) {
             measured.put("made", a.made());
         }
-        return new WsEvents.ActionFocus(studentId, displayName, studentNo, a.actionType(), a.actionType(), measured);
+        return new WsEvents.ActionFocus(studentId, displayName, studentNo, a.actionType(), actionLabel(a.actionType()), measured);
+    }
+
+    /** 动作类型 → 中文展示名(与 cloud /api/meta/vocabulary 的 actions[].label 一致);未知则原样返回。 */
+    private static final Map<String, String> ACTION_LABELS = Map.of(
+            "free_throw", "罚篮",
+            "jump_shot", "跳投",
+            "layup", "上篮",
+            "triple_threat", "突破",
+            "pass", "传球",
+            "unknown", "未知");
+
+    private static String actionLabel(String actionType) {
+        return actionType == null ? null : ACTION_LABELS.getOrDefault(actionType, actionType);
     }
 
     /** action-clips 单条 body(字段对齐 IngestRequests.ClipItem);score 带出手相位角供云端派生标准度。 */
@@ -276,7 +295,12 @@ public class LiveActionListener {
         return m;
     }
 
-    /** 取落在 [phase.start,phase.end] 内、最靠相位中点的一帧 angles;无则该相位不评。 */
+    /**
+     * 取落在 [phase.start,phase.end] 内、<b>有可用角度</b>且最靠相位中点的一帧 angles;无则该相位不评。
+     * <p>必须跳过全 null 帧:算法常在相位中段丢帧(单视遮挡/检测失败),若只按“最靠中点”选帧,
+     * 会挑到一个全 null 帧 → measured 为空 → 整个相位被跳过,即便相位边缘其实有可用角度(如 load 的屈膝、
+     * follow_through 的伸展)。改为在“有角度”的帧里选最靠中点者,相位覆盖率才不至于被中段丢帧吃掉。
+     */
     private static Map<String, Object> representativeRow(List<Map<String, Object>> angles, Map<String, Object> phase) {
         Double ps = num(phase, "start_ms");
         Double pe = num(phase, "end_ms");
@@ -288,7 +312,7 @@ public class LiveActionListener {
         double bestDist = Double.MAX_VALUE;
         for (Map<String, Object> row : angles) {
             Double t = num(row, "t_ms");
-            if (t == null || t < ps || t > pe) {
+            if (t == null || t < ps || t > pe || !hasAngle(row)) {
                 continue;
             }
             double d = Math.abs(t - mid);
@@ -298,6 +322,19 @@ public class LiveActionListener {
             }
         }
         return best;
+    }
+
+    /** 该帧是否至少有一个可用(非 null 有限)角度值(t_ms 不算)。 */
+    private static boolean hasAngle(Map<String, Object> row) {
+        if (row == null) {
+            return false;
+        }
+        for (Map.Entry<String, Object> e : row.entrySet()) {
+            if (!"t_ms".equals(e.getKey()) && e.getValue() instanceof Number n && Double.isFinite(n.doubleValue())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 解析算法 v2.2.0 的 action_finalized(snake_case)→ 内部记录。 */
@@ -362,6 +399,12 @@ public class LiveActionListener {
         SessionResponse s = sessionService.current();
         return (s != null && (s.state() == SessionState.RECORDING || s.state() == SessionState.PAUSED))
                 ? s.sessionId() : null;
+    }
+
+    /** 当前上课的课程 id(= 注册绑定的 session key,也 = CV run 的 --session);无活动会话则 null。 */
+    private String currentLessonId() {
+        SessionResponse s = sessionService.current();
+        return (s != null && s.lessonId() != null) ? s.lessonId().toString() : null;
     }
 
     private int nextClipIndex(UUID sessionId, String idKey) {

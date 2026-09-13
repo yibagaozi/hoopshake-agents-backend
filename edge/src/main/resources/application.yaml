@@ -14,7 +14,7 @@ hoopshake:
   edge:
     edge-id: edge-01
 
-    data-root: C:/hoopshake/data
+    data-root: C:/hoopshake/Basketball_inclass_system
 
     ffmpeg-path: C:/Program Files/ffmpeg-7.1.1/bin/ffmpeg.exe
 
@@ -47,14 +47,14 @@ hoopshake:
 
     encode:
       video-size: 1920x1080
-      framerate: 60
-      rtbufsize: 512M
+      framerate: 15
+      rtbufsize: 1024M
       codec: h264_nvenc
       preset: p4
       cq: 23
       bitrate: 8M
       maxrate: 12M
-      gop: 60
+      gop: 15
       pix-fmt: yuv420p
 
     cloud:
@@ -68,17 +68,22 @@ hoopshake:
 
     cv:
       enabled: true
-      auto-start: true
+      auto-start: false
       command:
         - C:/Users/Eirin/miniforge3/envs/basketball_classroom/python.exe
         - scripts/run_live_ws.py
         - run
         - --session
-        - ${LIVE_SESSION:live}
+        - "{session}"
+        - --gallery-session
+        - "{session}"
+      default-session: ${LIVE_SESSION:live}
       work-dir: ${ALGO_HOME:C:/hoopshake/Basketball_inclass_system}
       env:
         PYTHONUNBUFFERED: "1"
         PYTHONPATH: "."
+        PYTHONIOENCODING: "utf-8"
+        LIVE_PROF: "1"
 
     # 对象存储:默认关闭,用 NoopObjectStore 占位;线上填 endpoint/凭据/桶后置 true
     minio:
@@ -99,18 +104,18 @@ hoopshake:
     # 占位符 {sessionId} {dataDir} {rawDir}(=dataDir/raw) {cloudDir}(=dataDir/cloud) 运行时替换。
     # 未接入算法入口前保持 enabled=false:下课只停录制,出云走手动 POST /local/session/{id}/publish 或 CV 上行 sessionProcessed。
     batch:
-      enabled: ${EDGE_BATCH_ENABLED:false}
+      enabled: ${EDGE_BATCH_ENABLED:true}
       auto-on-stop: true
       command:
-        - python
-        - C:/hoopshake/algo/run_session.py
+        - C:/Users/Eirin/miniforge3/envs/basketball_classroom/python.exe
+        - scripts/run_session.py
         - --session
         - "{sessionId}"
         - --raw
         - "{rawDir}"
         - --cloud
         - "{cloudDir}"
-      work-dir: C:/hoopshake/algo
+      work-dir: C:/hoopshake/Basketball_inclass_system
       env:
         PYTHONUNBUFFERED: "1"
       timeout: 30m
@@ -124,7 +129,7 @@ hoopshake:
     # 算法 v2.2.0 直播对接。WS 沿用原设计:算法作客户端连 edge 的 /internal/cv/stream 推 action_finalized/
     # timeline_gap(edge 不反连算法)。此处只配:读算法注册产物的目录、人脸绑定表缓存位置。
     live:
-      algo-outputs-dir: ${ALGO_OUTPUTS_DIR:C:/hoopshake/data/outputs/live}
+      algo-outputs-dir: ${ALGO_OUTPUTS_DIR:C:/hoopshake/Basketball_inclass_system/data/outputs/live}
       binding-rel-path: identity/bindings.json
       persist-unbound: false
 
@@ -145,6 +150,7 @@ hoopshake:
       env:
         PYTHONUNBUFFERED: "1"
         PYTHONPATH: "."
+        PYTHONIOENCODING: "utf-8"
       timeout: 5m
 
 logging:

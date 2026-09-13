@@ -47,7 +47,13 @@ public enum WsEventType {
             Set.of(WsRole.DISPLAY, WsRole.CONSOLE, WsRole.REGISTRATION)),
 
     /** 现场注册采集进度 */
-    ENROLL_PROGRESS("enrollProgress", false, Set.of(WsRole.REGISTRATION));
+    ENROLL_PROGRESS("enrollProgress", false, Set.of(WsRole.REGISTRATION)),
+
+    /**
+     * 会话批处理完成(编排器 / 算法经 /internal/cv/stream 上行,payload 至少含 {@code sessionId}):
+     * 触发"会话结束出云"。仅入站、不扇出 UI(targets 为空 → WsHub 不广播),由 {@code SessionPublishListener} 消费。
+     */
+    SESSION_PROCESSED("sessionProcessed", false, Set.of());
 
     private final String wireName;
     private final boolean droppable;
