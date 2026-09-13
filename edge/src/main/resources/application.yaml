@@ -70,7 +70,7 @@ hoopshake:
       enabled: true
       auto-start: true
       command:
-        - python
+        - C:/Users/Eirin/miniforge3/envs/basketball_classroom/python.exe
         - scripts/run_live_ws.py
         - run
         - --session
@@ -133,10 +133,10 @@ hoopshake:
     # session 约定 = 课程 id,算法据此把注册产物写 {live.algo-outputs-dir}/{session}/,前端再用同一 session 拉 identities。
     # 相机/RTSP/anchor 等固定参数放 extra-args。未接算法入口前保持 enabled=false(采脸靠人工在算法机上跑)。
     enroll:
-      enabled: ${EDGE_ENROLL_ENABLED:false}
-      python-executable: ${ALGO_PYTHON:python}
+      enabled: ${EDGE_ENROLL_ENABLED:true}
+      python-executable: ${ALGO_PYTHON:C:/Users/Eirin/miniforge3/envs/basketball_classroom/python.exe}
       script-path: scripts/run_live_ws.py
-      work-dir: ${ALGO_HOME:C:/hoopshake/tools}
+      work-dir: ${ALGO_HOME:C:/hoopshake/Basketball_inclass_system}
       enroll-camera: cam_03
       seconds: 45.0
       sample-hz: 8
