@@ -118,27 +118,52 @@ public class IdentityBindingStore {
     }
 
     /**
-     * run 时解析身份:global_id 优先(跨课次),否则用当堂 stu_XX;
-     * 当命中的是当堂绑定且事件带了 global_id,顺便把 global_id→绑定学到并落盘(下次课免绑)。
+     * run 时解析身份(带会话上下文,推荐)。按优先级:
+     * <ol>
+     *   <li>{@code global_id}(跨课次,持久);</li>
+     *   <li>{@code session(=课程id) + stu_XX}(<b>持久,重启后仍在</b>;算法没给 global_id 时的主路径);</li>
+     *   <li>当堂内存 {@code stu_XX}(不持久,仅同一 JVM 内兜底)。</li>
+     * </ol>
+     * 命中会话档/当堂档且事件带了 global_id,顺便把 {@code global_id → 绑定}学到并落盘(下次课免绑)。
+     *
+     * <p>修复:此前只查 {@code byGlobalId}/{@code byLocalId},而 {@code byLocalId} 是内存态、重启后为空,
+     * 算法又常无 {@code global_id} → 重启后解析不到 → displayName 回落成 {@code stu_XX}。现补查持久的 {@code bySession}。
      */
-    public Optional<Binding> resolve(String globalId, String localId) {
+    public Optional<Binding> resolve(String session, String globalId, String localId) {
         if (globalId != null && !globalId.isBlank()) {
             Binding g = byGlobalId.get(globalId);
             if (g != null) {
                 return Optional.of(g);
             }
         }
+        if (session != null && !session.isBlank() && localId != null && !localId.isBlank()) {
+            ConcurrentMap<String, Binding> inner = bySession.get(session);
+            Binding s = inner == null ? null : inner.get(localId);
+            if (s != null) {
+                learnGlobal(globalId, s);
+                return Optional.of(s);
+            }
+        }
         if (localId != null && !localId.isBlank()) {
             Binding l = byLocalId.get(localId);
             if (l != null) {
-                if (globalId != null && !globalId.isBlank()) {
-                    byGlobalId.put(globalId, l);
-                    persist();
-                }
+                learnGlobal(globalId, l);
                 return Optional.of(l);
             }
         }
         return Optional.empty();
+    }
+
+    /** 旧签名(无会话上下文):等价于 {@code resolve(null, globalId, localId)},不查按会话档。 */
+    public Optional<Binding> resolve(String globalId, String localId) {
+        return resolve(null, globalId, localId);
+    }
+
+    /** 命中非 global 档且事件带 global_id 时,补学一条跨课次映射并落盘(仅首次,避免每投一次都写盘)。 */
+    private void learnGlobal(String globalId, Binding b) {
+        if (globalId != null && !globalId.isBlank() && byGlobalId.putIfAbsent(globalId, b) == null) {
+            persist();
+        }
     }
 
     /** 某注册会话某 stu_XX 的绑定(注册页回显“已绑定”用);无则 null。 */
