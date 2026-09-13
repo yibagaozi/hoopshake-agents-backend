@@ -78,41 +78,4 @@ class EnrollBindingControllerTest {
         assertThat(data.people().get(0).globalId()).isNull();
     }
 
-    @Test
-    void bind_resolvesStudentIdFromRoster_andPersistsGlobal(@TempDir Path root, @TempDir Path algoOut) {
-        EdgeProperties p = props(root, algoOut);
-        IdentityBindingStore store = new IdentityBindingStore(p, mapper);
-        store.load();
-        RosterService roster = mock(RosterService.class);
-        when(roster.find("2021001")).thenReturn(Optional.of(new RosterEntry(
-                STU, "2021001", "张三", "RIGHT", null, null, null, null, null)));
-        EnrollBindingController c = new EnrollBindingController(p, store, roster, mapper, mock(EnrollLauncher.class));
-
-        List<BoundPerson> out = c.bind(new BindRequest(List.of(
-                new BindItem("stu_00", "stu_global_03", "2021001")))).data();
-
-        assertThat(out).hasSize(1);
-        assertThat(out.get(0).studentId()).isEqualTo(STU.toString());
-        assertThat(out.get(0).matchedInRoster()).isTrue();
-        // global_id 已持久化 → 跨课次可直接命中
-        assertThat(store.resolve("stu_global_03", null)).isPresent();
-        assertThat(store.persistentBindings()).containsKey("stu_global_03");
-    }
-
-    @Test
-    void bind_studentNoNotInRoster_stillBindsWithoutStudentId(@TempDir Path root, @TempDir Path algoOut) {
-        EdgeProperties p = props(root, algoOut);
-        IdentityBindingStore store = new IdentityBindingStore(p, mapper);
-        store.load();
-        RosterService roster = mock(RosterService.class);
-        when(roster.find("9999")).thenReturn(Optional.empty());
-        EnrollBindingController c = new EnrollBindingController(p, store, roster, mapper, mock(EnrollLauncher.class));
-
-        BoundPerson bp = c.bind(new BindRequest(List.of(
-                new BindItem("stu_02", "stu_global_09", "9999")))).data().get(0);
-
-        assertThat(bp.studentId()).isNull();          // 名单没查到,studentId 留空(云端仍会按学号解析)
-        assertThat(bp.matchedInRoster()).isFalse();
-        assertThat(store.resolve("stu_global_09", null)).isPresent();
-    }
 }

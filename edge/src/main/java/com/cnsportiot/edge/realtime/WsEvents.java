@@ -152,5 +152,12 @@ public final class WsEvents {
             int capturedFrames,
             int totalFrames) {
     }
+
+    /**
+     * 会话批处理完成信号(触发出云),由 {@code SessionBatchOrchestrator} 或算法经 /internal/cv/stream 上行发出。
+     * {@code SessionPublishListener} 只取 {@code sessionId};{@code source} 供日志区分来源(batch / manual-publish / cv)。
+     */
+    public record SessionProcessed(UUID sessionId, String source) {
+    }
 }
 

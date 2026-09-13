@@ -100,15 +100,23 @@ public class EdgeProperties {
     @Setter
     public static class Cv {
         private boolean enabled = false;
-        /** 应用就绪后自动拉起;false 则只能经 /local/cv/start 手动启动 */
-        private boolean autoStart = true;
-        /** 完整命令行,首元素为可执行文件 */
+        /**
+         * 是否在应用就绪后自动拉起。<b>默认 false</b>:CV 改由“开始上课”按 session 拉起、或操作台
+         * “启动算法”按钮手动拉起,不再随 edge 启动就跑(否则会用错的 session、且空转占 GPU)。
+         */
+        private boolean autoStart = false;
+        /**
+         * 完整命令行,首元素为可执行文件。可含占位符 {@code {session}},启动时替换成实际 session
+         * (= 课程 id / 手动指定 / default-session),让算法 {@code run --session/--gallery-session} 对上注册库。
+         */
         private List<String> command = new ArrayList<>();
         private String workDir;
         /** 注入子进程的环境变量;python 需 PYTHONUNBUFFERED=1 才能实时看到日志 */
         private Map<String, String> env = new LinkedHashMap<>();
         private boolean autoRestart = true;
         private int maxFailures = 5;
+        /** 未指定 session 时(手动按钮不带参数 / auto-start)用的默认 session。 */
+        private String defaultSession = "live";
     }
 
     /**

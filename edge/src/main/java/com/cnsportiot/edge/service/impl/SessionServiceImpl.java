@@ -6,6 +6,8 @@ import com.cnsportiot.edge.service.LessonContextService;
 import com.cnsportiot.edge.camera.CameraRegistry;
 import com.cnsportiot.edge.capture.CaptureManager;
 import com.cnsportiot.edge.capture.RecordingManager;
+import com.cnsportiot.edge.cloudsync.SessionBatchOrchestrator;
+import com.cnsportiot.edge.cv.CvProcessManager;
 import com.cnsportiot.edge.config.EdgeProperties;
 import com.cnsportiot.edge.domain.CameraDescriptor;
 import com.cnsportiot.edge.domain.LessonContext;
@@ -48,6 +50,8 @@ public class SessionServiceImpl implements SessionService {
     private final RecordingManager recordingManager;
     private final LessonContextService lessonContextService;
     private final ObjectMapper objectMapper;
+    private final SessionBatchOrchestrator batchOrchestrator;
+    private final CvProcessManager cvProcessManager;
 
     private final AtomicReference<RecordingSession> current = new AtomicReference<>();
 
@@ -56,13 +60,17 @@ public class SessionServiceImpl implements SessionService {
                               CaptureManager captureManager,
                               RecordingManager recordingManager,
                               LessonContextService lessonContextService,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                              SessionBatchOrchestrator batchOrchestrator,
+                              CvProcessManager cvProcessManager) {
         this.props = props;
         this.registry = registry;
         this.captureManager = captureManager;
         this.recordingManager = recordingManager;
         this.lessonContextService = lessonContextService;
         this.objectMapper = objectMapper;
+        this.batchOrchestrator = batchOrchestrator;
+        this.cvProcessManager = cvProcessManager;
     }
 
     @Override
@@ -109,6 +117,11 @@ public class SessionServiceImpl implements SessionService {
         current.set(session);
 
         writeMeta(session);
+
+        // 按 session(=课程 id)拉起 CV 推理:算法据此加载该课注册的人脸库,identity 才能对上。
+        // 无课程的纯录制则传 null → 用 cv.default-session(无注册库=无身份)。cv.enabled=false 时 no-op。
+        cvProcessManager.start(lessonId != null ? lessonId.toString() : null);
+
         // TODO 预留:落 spool 一条 §10.1 事件(status=CREATED),联网后补传
         log.info("会话已开始 sessionId={} lessonId={} 录制 {} 路 dataDir={}",
                 sessionId, lessonId, online.size(), dataDir);
@@ -154,6 +167,13 @@ public class SessionServiceImpl implements SessionService {
         writeMeta(session);
         // TODO 预留:落 spool 一条 §10.1 事件(status=RECORDED,带 dataDir/recordedAt),联网后补传
         log.info("会话已结束 sessionId={} 片段数={}", session.sessionId(), session.segments().size());
+
+        // 下课 → 批处理 → sessionProcessed 编排。非阻塞:开关关闭时即 no-op,
+        // 开启时提交到 batchExecutor 异步跑算法,不拖慢 stop() 返回。
+        batchOrchestrator.onSessionEnded(session.sessionId(), Path.of(session.dataDir()));
+
+        // 下课停 CV(与本课 session 绑定;下次上课按新课 session 重新拉起)
+        cvProcessManager.stop();
 
         List<SegmentItem> segments = toSegmentItems(session);
         return new StopSessionResponse(

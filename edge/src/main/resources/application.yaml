@@ -68,7 +68,7 @@ hoopshake:
 
     cv:
       enabled: true
-      auto-start: true
+      auto-start: false
       command:
         - C:/Users/Eirin/miniforge3/envs/basketball_classroom/python.exe
         - scripts/run_live_ws.py
