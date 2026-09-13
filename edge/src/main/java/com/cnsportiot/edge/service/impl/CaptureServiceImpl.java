@@ -78,9 +78,12 @@ public class CaptureServiceImpl implements CaptureService {
     @Override
     public void restart(String camId) {
         if (camId == null || camId.isBlank()) {
-            captureManager.restartAll();
+            // 不再无条件重启全部机位:那会杀掉正在推流的 publisher,mediamtx 路径消失,
+            // 正在读流的 CV / 录制被强制断开(上课瞬间断流 → 收不到事件)。
+            // 改为幂等“确保就绪”:活着的机位保持不动(不打断已有 reader),只补起挂掉的。
+            captureManager.startAll();   // start() 对 alive 的机位跳过,不触碰健康流
         } else {
-            captureManager.restart(camId);
+            captureManager.restart(camId);   // 指定机位:显式强制重启,用于操作台修单路卡死
         }
     }
 
