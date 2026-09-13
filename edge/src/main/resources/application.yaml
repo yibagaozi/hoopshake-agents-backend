@@ -126,7 +126,7 @@ hoopshake:
     # 算法 v2.2.0 直播对接。WS 沿用原设计:算法作客户端连 edge 的 /internal/cv/stream 推 action_finalized/
     # timeline_gap(edge 不反连算法)。此处只配:读算法注册产物的目录、人脸绑定表缓存位置。
     live:
-      algo-outputs-dir: ${ALGO_OUTPUTS_DIR:C:/hoopshake/data/outputs/live}
+      algo-outputs-dir: ${ALGO_OUTPUTS_DIR:C:/hoopshake/Basketball_inclass_system/data/outputs/live}
       binding-rel-path: identity/bindings.json
       persist-unbound: false
 
