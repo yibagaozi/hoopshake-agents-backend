@@ -47,19 +47,19 @@ hoopshake:
 
     encode:
       video-size: 1920x1080
-      framerate: 60
-      rtbufsize: 512M
+      framerate: 15
+      rtbufsize: 1024M
       codec: h264_nvenc
       preset: p4
       cq: 23
       bitrate: 8M
       maxrate: 12M
-      gop: 60
+      gop: 15
       pix-fmt: yuv420p
 
     cloud:
-      base-url: http://agent.cnsportiot.com
-      service-token: ${EDGE_SERVICE_TOKEN:default-token}
+      base-url: https://agent.cnsportiot.com
+      service-token: ${EDGE_SERVICE_TOKEN:sdf4g98szd4gv9df4zg9fdsz}
       connect-timeout-millis: 3000
       read-timeout-millis: 10000
 
@@ -79,6 +79,8 @@ hoopshake:
       env:
         PYTHONUNBUFFERED: "1"
         PYTHONPATH: "."
+        PYTHONIOENCODING: "utf-8"
+        LIVE_PROF: "1"
 
     # 对象存储:默认关闭,用 NoopObjectStore 占位;线上填 endpoint/凭据/桶后置 true
     minio:
@@ -145,6 +147,7 @@ hoopshake:
       env:
         PYTHONUNBUFFERED: "1"
         PYTHONPATH: "."
+        PYTHONIOENCODING: "utf-8"
       timeout: 5m
 
 logging:
