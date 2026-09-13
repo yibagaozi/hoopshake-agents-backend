@@ -74,7 +74,10 @@ hoopshake:
         - scripts/run_live_ws.py
         - run
         - --session
-        - ${LIVE_SESSION:live}
+        - "{session}"
+        - --gallery-session
+        - "{session}"
+      default-session: ${LIVE_SESSION:live}
       work-dir: ${ALGO_HOME:C:/hoopshake/Basketball_inclass_system}
       env:
         PYTHONUNBUFFERED: "1"
