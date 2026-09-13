@@ -95,7 +95,7 @@ public class EnrollBindingController {
                     if (localId == null) {
                         continue;
                     }
-                    people.add(new EnrolledPerson(localId, asStr(im.get("global_id")),
+                    people.add(enrolled(session, localId, asStr(im.get("global_id")),
                             Files.exists(previewDir.resolve(localId + ".jpg"))));
                 }
             }
@@ -104,7 +104,7 @@ public class EnrollBindingController {
             @SuppressWarnings("unchecked")
             List<String> ids = (List<String>) m.getOrDefault("student_ids", List.of());
             for (String id : ids) {
-                people.add(new EnrolledPerson(id, null, Files.exists(previewDir.resolve(id + ".jpg"))));
+                people.add(enrolled(session, id, null, Files.exists(previewDir.resolve(id + ".jpg"))));
             }
         }
         return ApiResponse.ok(new EnrolledIdentities(session, String.valueOf(m.get("enroll_camera")), people));
@@ -128,7 +128,10 @@ public class EnrollBindingController {
         }
     }
 
-    /** 教师看脸输学号,批量绑定。edge 从名单回填 studentId/姓名并缓存(global_id 于 run 时学到)。 */
+    /**
+     * 教师看脸输学号,批量绑定。edge 从名单回填 studentId/姓名并按 {@code session(=课程id)} 持久缓存
+     * (即使算法没给 global_id 也落盘,重开注册页据此回显);有 global_id 时另建跨课次映射。
+     */
     @PostMapping("/bind")
     public ApiResponse<List<BoundPerson>> bind(@Valid @RequestBody BindRequest request) {
         List<BoundPerson> out = new ArrayList<>();
@@ -137,7 +140,7 @@ public class EnrollBindingController {
             String studentId = entry != null && entry.studentId() != null ? entry.studentId().toString() : null;
             String displayName = entry != null ? entry.displayName() : null;
             Binding b = new Binding(it.studentNo(), studentId, displayName);
-            bindings.bind(it.localId(), it.globalId(), b);
+            bindings.bind(request.session(), it.localId(), it.globalId(), b);
             out.add(new BoundPerson(it.localId(), it.globalId(), it.studentNo(), studentId, displayName, entry != null));
         }
         return ApiResponse.ok(out);
@@ -147,6 +150,16 @@ public class EnrollBindingController {
     @GetMapping("/bindings")
     public ApiResponse<Map<String, Binding>> current() {
         return ApiResponse.ok(bindings.persistentBindings());
+    }
+
+    /** 组一条注册人:附上该会话内该 stu_XX 的已绑定学号/姓名(重开注册页据此回显“已绑定”)。 */
+    private EnrolledPerson enrolled(String session, String localId, String globalId, boolean hasThumbnail) {
+        Binding b = bindings.forSessionLocal(session, localId);
+        if (b == null && globalId != null) {
+            b = bindings.forGlobal(globalId);
+        }
+        return new EnrolledPerson(localId, globalId, hasThumbnail,
+                b != null, b == null ? null : b.studentNo(), b == null ? null : b.displayName());
     }
 
     private Path algoSessionDir(String session) {
@@ -169,9 +182,12 @@ public class EnrollBindingController {
 
     public record EnrolledIdentities(String session, String enrollCamera, List<EnrolledPerson> people) {}
 
-    public record EnrolledPerson(String localId, String globalId, boolean hasThumbnail) {}
+    /** bound=已绑学号;boundStudentNo/boundDisplayName 为已绑内容(未绑为 null),供注册页回显。 */
+    public record EnrolledPerson(String localId, String globalId, boolean hasThumbnail,
+                                 boolean bound, String boundStudentNo, String boundDisplayName) {}
 
-    public record BindRequest(@NotEmpty @Valid List<BindItem> bindings) {}
+    /** session 必填(= 课程 id),与拉 identities 用的同一个,决定绑定存到哪个会话名下。 */
+    public record BindRequest(@NotBlank String session, @NotEmpty @Valid List<BindItem> bindings) {}
 
     public record BindItem(
             @NotBlank String localId,
