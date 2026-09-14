@@ -88,6 +88,7 @@ public class CvChannelHandler extends TextWebSocketHandler {
 
         String typeName = frame.path("type").asText(null);
         WsEventType type = WsEventType.fromWire(typeName);
+        log.warn(String.valueOf(frame));
         if (type == null) {
             log.warn("未知 CV 事件类型,已忽略: {}", typeName);
             return;
