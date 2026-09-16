@@ -153,6 +153,20 @@ hoopshake:
         PYTHONIOENCODING: "utf-8"
       timeout: 5m
 
+    # 场边遥测:Java 日志 / Python 输出 / 进程运行数据 / WS 与系统指标批量上云。
+    # 队列有界,断网时本次批量会保留在内存中待重试;云不可用时不影响业务进程。
+    telemetry:
+      enabled: ${EDGE_TELEMETRY_ENABLED:true}
+      queue-capacity: ${EDGE_TELEMETRY_QUEUE_CAPACITY:20000}
+      batch-size: ${EDGE_TELEMETRY_BATCH_SIZE:500}
+      flush-interval: ${EDGE_TELEMETRY_FLUSH_INTERVAL:5s}
+      metric-interval: ${EDGE_TELEMETRY_METRIC_INTERVAL:15s}
+      java-logs-enabled: ${EDGE_TELEMETRY_JAVA_LOGS_ENABLED:true}
+      java-log-level: ${EDGE_TELEMETRY_JAVA_LOG_LEVEL:INFO}
+      python-logs-enabled: ${EDGE_TELEMETRY_PYTHON_LOGS_ENABLED:true}
+      max-message-chars: 8000
+      max-stack-chars: 16000
+
 logging:
   level:
     com.cnsportiot.edge: INFO

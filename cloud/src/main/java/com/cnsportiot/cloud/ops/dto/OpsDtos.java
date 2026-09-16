@@ -50,6 +50,18 @@ public final class OpsDtos {
             Double ragHitRate,
             Double avgAnswerChars,
             ToolCounts tool,
+            Double toolErrorRate,
+            List<AgentQualitySlice> byChatType) {}
+
+    public record AgentQualitySlice(
+            String chatType,
+            long answeredRuns,
+            long degradedRuns,
+            Double degradedRate,
+            long ragHitRuns,
+            Double ragHitRate,
+            Double avgAnswerChars,
+            ToolCounts tool,
             Double toolErrorRate) {}
 
     public record ToolCounts(long ok, long deny, long error) {}
