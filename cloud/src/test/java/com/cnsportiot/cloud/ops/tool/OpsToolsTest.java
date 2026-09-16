@@ -70,7 +70,8 @@ class OpsToolsTest {
     // ---- 入参解析 ----
 
     @Test void agentQuality_usesArgWindow_elseDefault() {
-        AgentQualityResponse q = new AgentQualityResponse(0, 0, 0, null, 0, null, null, null, null);
+        AgentQualityResponse q = new AgentQualityResponse(0, 0, 0, null, 0, null, null,
+                null, null, List.of());
         when(ops.agentQuality(anyInt())).thenReturn(q);
         GetAgentQualityTool tool = new GetAgentQualityTool(ops, opsProps);
 
