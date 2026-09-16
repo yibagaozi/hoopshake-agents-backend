@@ -24,13 +24,19 @@ public class ManagedProcess implements Runnable {
     private static final long GRACEFUL_STOP_SECONDS = 10;
 
     private final ProcessSpec spec;
+    private final ManagedProcessListener listener;
     private final AtomicReference<ProcessState> state = new AtomicReference<>(ProcessState.STOPPED);
     private volatile Process process;
     private volatile boolean desiredRunning;
     private int consecutiveFailures;
 
     public ManagedProcess(ProcessSpec spec) {
+        this(spec, null);
+    }
+
+    public ManagedProcess(ProcessSpec spec, ManagedProcessListener listener) {
         this.spec = spec;
+        this.listener = listener;
     }
 
     /** 提交到 supervisor 线程池执行,线程常驻直至 stop() */
@@ -44,26 +50,35 @@ public class ManagedProcess implements Runnable {
                 state.set(ProcessState.RUNNING);
                 consecutiveFailures = 0;
                 log.info("进程已启动: {} pid={}", spec.name(), process.pid());
+                notifyStarted(process.pid());
 
                 int exit = process.waitFor();
+                long exitedPid = process.pid();
                 if (!desiredRunning) {
+                    notifyExited(exitedPid, exit, true);
                     break;
                 }
                 log.warn("进程非预期退出: {} exit={}", spec.name(), exit);
+                notifyExited(exitedPid, exit, false);
                 state.set(ProcessState.FAILED);
 
                 if (!spec.autoRestart() || ++consecutiveFailures >= spec.maxFailures()) {
                     log.error("进程放弃重启: {} 连续失败 {} 次", spec.name(), consecutiveFailures);
+                    notifyFailed(exitedPid, "max consecutive failures reached");
                     break;
                 }
-                Thread.sleep(backoffMillis());
+                long backoffMillis = backoffMillis();
+                notifyRestarting(exitedPid, exit, backoffMillis);
+                Thread.sleep(backoffMillis);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             } catch (IOException e) {
                 log.error("进程启动失败: {}", spec.name(), e);
+                notifyFailed(process == null ? null : process.pid(), e.getMessage());
                 state.set(ProcessState.FAILED);
                 if (++consecutiveFailures >= spec.maxFailures()) {
+                    notifyFailed(process == null ? null : process.pid(), "max consecutive failures reached");
                     break;
                 }
                 sleepQuietly(backoffMillis());
@@ -164,6 +179,11 @@ public class ManagedProcess implements Runnable {
         return state.get();
     }
 
+    public Long pid() {
+        Process current = process;
+        return current == null ? null : current.pid();
+    }
+
     public void state(ProcessState newState) {
         state.set(newState);
     }
@@ -184,5 +204,44 @@ public class ManagedProcess implements Runnable {
             Thread.currentThread().interrupt();
         }
     }
-}
 
+    private void notifyStarted(long pid) {
+        if (listener != null) {
+            try {
+                listener.onStarted(spec.name(), pid);
+            } catch (RuntimeException e) {
+                log.warn("进程启动回调失败: {}", spec.name(), e);
+            }
+        }
+    }
+
+    private void notifyExited(long pid, int exitCode, boolean expected) {
+        if (listener != null) {
+            try {
+                listener.onExited(spec.name(), pid, exitCode, expected);
+            } catch (RuntimeException e) {
+                log.warn("进程退出回调失败: {}", spec.name(), e);
+            }
+        }
+    }
+
+    private void notifyRestarting(long pid, int exitCode, long delayMillis) {
+        if (listener != null) {
+            try {
+                listener.onRestarting(spec.name(), pid, exitCode, delayMillis);
+            } catch (RuntimeException e) {
+                log.warn("进程重启回调失败: {}", spec.name(), e);
+            }
+        }
+    }
+
+    private void notifyFailed(Long pid, String reason) {
+        if (listener != null) {
+            try {
+                listener.onFailed(spec.name(), pid, reason);
+            } catch (RuntimeException e) {
+                log.warn("进程失败回调失败: {}", spec.name(), e);
+            }
+        }
+    }
+}
