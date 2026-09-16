@@ -8,6 +8,7 @@ public record RosterEntry(
         String studentNo,
         String displayName,
         String dominantHand,
+        boolean faceBound,
         UUID galleryId,
         Integer galleryVersion,
         String galleryUri,
@@ -15,6 +16,6 @@ public record RosterEntry(
         String bodyModel) {
 
     public boolean galleryReady() {
-        return galleryUri != null;
+        return faceBound || galleryUri != null;
     }
 }

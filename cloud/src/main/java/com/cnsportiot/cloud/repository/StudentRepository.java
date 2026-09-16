@@ -59,6 +59,13 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
         String getDisplayName();
     }
 
+    interface RosterRef {
+        UUID getStudentId();
+        String getStudentNo();
+        String getDisplayName();
+        DominantHand getDominantHand();
+    }
+
     @Query("""
             SELECT s.id          AS studentId,
                    s.studentNo   AS studentNo,
@@ -68,6 +75,17 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
             WHERE s.studentNo IN :studentNos
             """)
     List<StudentRef> findRefsByStudentNoIn(@Param("studentNos") Collection<String> studentNos);
+
+    @Query("""
+            SELECT s.id              AS studentId,
+                   s.studentNo       AS studentNo,
+                   a.displayName     AS displayName,
+                   s.dominantHand    AS dominantHand
+            FROM Student s
+                 JOIN Account a ON a.id = s.accountId
+            WHERE s.id IN :studentIds
+            """)
+    List<RosterRef> findRosterRefsByStudentIdIn(@Param("studentIds") Collection<UUID> studentIds);
 
     @Query(value = """
             SELECT student_id    AS studentId,

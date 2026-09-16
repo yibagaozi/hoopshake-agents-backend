@@ -44,11 +44,13 @@ public interface LessonEnrollmentRepository extends JpaRepository<LessonEnrollme
                    s.studentNo     AS studentNo,
                    a.displayName   AS displayName,
                    a.status        AS accountStatus,
-                   (CASE WHEN s.activeGalleryId IS NOT NULL THEN TRUE ELSE FALSE END) AS galleryReady,
+                   (CASE WHEN s.activeGalleryId IS NOT NULL
+                              OR fb.id IS NOT NULL THEN TRUE ELSE FALSE END) AS galleryReady,
                    e.createdAt     AS enrolledAt
             FROM LessonEnrollment e
                  JOIN Student s ON s.id = e.studentId
                  JOIN Account a ON a.id = s.accountId
+                 LEFT JOIN FaceIdentityBinding fb ON fb.studentId = s.id
             WHERE e.lessonId = :lessonId
             ORDER BY s.studentNo
             """)

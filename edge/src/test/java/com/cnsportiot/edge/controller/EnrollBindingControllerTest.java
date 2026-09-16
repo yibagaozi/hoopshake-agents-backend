@@ -1,6 +1,7 @@
 package com.cnsportiot.edge.controller;
 
 import com.cnsportiot.contracts.common.ApiResponse;
+import com.cnsportiot.edge.cloudsync.CloudIngestClient;
 import com.cnsportiot.edge.config.EdgeProperties;
 import com.cnsportiot.edge.controller.EnrollBindingController.BindItem;
 import com.cnsportiot.edge.controller.EnrollBindingController.BindRequest;
@@ -23,6 +24,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** 现场注册绑定:列出算法注册的人(带/不带 global_id)+ 看脸输学号 → 回填 studentId + 缓存。 */
@@ -55,7 +57,7 @@ class EnrollBindingControllerTest {
                 """);
         EnrollBindingController c = new EnrollBindingController(
                 props(root, algoOut), new IdentityBindingStore(props(root, algoOut), mapper),
-                mock(RosterService.class), mapper, mock(EnrollLauncher.class));
+                mock(RosterService.class), mapper, mock(EnrollLauncher.class), mock(CloudIngestClient.class));
 
         ApiResponse<EnrolledIdentities> r = c.identities("live_x");
         assertThat(r.data().people()).hasSize(2);
@@ -71,11 +73,36 @@ class EnrollBindingControllerTest {
                 """);
         EnrollBindingController c = new EnrollBindingController(
                 props(root, algoOut), new IdentityBindingStore(props(root, algoOut), mapper),
-                mock(RosterService.class), mapper, mock(EnrollLauncher.class));
+                mock(RosterService.class), mapper, mock(EnrollLauncher.class), mock(CloudIngestClient.class));
 
         EnrolledIdentities data = c.identities("live_y").data();
         assertThat(data.people()).hasSize(1);
         assertThat(data.people().get(0).globalId()).isNull();
+    }
+
+    @Test
+    void bind_persistsLocally_andSyncsGlobalIdToCloud(@TempDir Path root, @TempDir Path algoOut) {
+        EdgeProperties edgeProps = props(root, algoOut);
+        IdentityBindingStore store = new IdentityBindingStore(edgeProps, mapper);
+        RosterService roster = mock(RosterService.class);
+        CloudIngestClient cloud = mock(CloudIngestClient.class);
+        UUID lessonId = UUID.fromString("cccccccc-0000-0000-0000-000000000001");
+        when(roster.find("2021001")).thenReturn(Optional.of(new RosterEntry(
+                STU, "2021001", "张三", null, false,
+                null, null, null, null, null)));
+        EnrollBindingController controller = new EnrollBindingController(
+                edgeProps, store, roster, mapper, mock(EnrollLauncher.class), cloud);
+
+        var response = controller.bind(new BindRequest(lessonId.toString(), List.of(
+                new BindItem("stu_00", "stu_global_01", "2021001"))));
+
+        assertThat(response.data()).singleElement().satisfies(person -> {
+            assertThat(person.displayName()).isEqualTo("张三");
+            assertThat(person.cloudSynced()).isTrue();
+        });
+        assertThat(store.forGlobal("stu_global_01").studentNo()).isEqualTo("2021001");
+        verify(cloud).syncFaceBinding(lessonId, "stu_00", "stu_global_01",
+                STU.toString(), "2021001", edgeProps.getEdgeId());
     }
 
 }

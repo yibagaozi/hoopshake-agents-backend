@@ -48,6 +48,8 @@ public class EdgeProperties {
 
     private Enroll enroll = new Enroll();
 
+    private Telemetry telemetry = new Telemetry();
+
     @Getter
     @Setter
     public static class Camera {
@@ -216,6 +218,32 @@ public class EdgeProperties {
         private Map<String, String> env = new LinkedHashMap<>();
         /** 单次采集墙钟上限,超时强杀并标记 FAILED。 */
         private Duration timeout = Duration.ofMinutes(5);
+    }
+
+    /** 场边遥测:Java 日志 / Python 输出 / 进程运行数据 / WS 与系统指标 */
+    @Getter
+    @Setter
+    public static class Telemetry {
+        /** 总开关。关闭后不挂 Appender、不上报,但进程输出仍会打印到本地日志。 */
+        private boolean enabled = true;
+        /** 内存队列容量;满时丢弃最旧事件,优先保留最新异常。 */
+        private int queueCapacity = 20_000;
+        /** 单次上报最大事件数,云端接口限制 1000。 */
+        private int batchSize = 500;
+        /** 上报间隔。 */
+        private Duration flushInterval = Duration.ofSeconds(5);
+        /** 系统与 WS 指标采样间隔。 */
+        private Duration metricInterval = Duration.ofSeconds(15);
+        /** 是否采集 Java 日志。 */
+        private boolean javaLogsEnabled = true;
+        /** Java 日志最低级别。 */
+        private String javaLogLevel = "INFO";
+        /** 是否采集 Python stdout/stderr。 */
+        private boolean pythonLogsEnabled = true;
+        /** 单条 message 最大字符数。 */
+        private int maxMessageChars = 8_000;
+        /** 单条堆栈最大字符数。 */
+        private int maxStackChars = 16_000;
     }
 
     /** 出云选路。批处理(session/clips/gallery)可走 MQ;实时反馈始终走 HTTP */

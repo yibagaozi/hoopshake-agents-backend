@@ -180,6 +180,19 @@ public class IdentityBindingStore {
         return globalId == null ? null : byGlobalId.get(globalId);
     }
 
+    /** 某课程会话某 stu_XX 已学到的 global_id;算法未给时为 null。 */
+    public String globalIdForSessionLocal(String session, String localId) {
+        Binding binding = forSessionLocal(session, localId);
+        if (binding == null) {
+            return null;
+        }
+        return byGlobalId.entrySet().stream()
+                .filter(entry -> binding.equals(entry.getValue()))
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(null);
+    }
+
     /** 当前持久跨课次绑定(global_id → 绑定),排查/回显用。 */
     public Map<String, Binding> persistentBindings() {
         return Map.copyOf(byGlobalId);
@@ -189,6 +202,16 @@ public class IdentityBindingStore {
     public Map<String, Binding> sessionBindings(String session) {
         ConcurrentMap<String, Binding> inner = bySession.get(session);
         return inner == null ? Map.of() : Map.copyOf(inner);
+    }
+
+    /** 判断某课程会话内该学号是否已完成现场人脸绑定。 */
+    public boolean isStudentNoBound(String session, String studentNo) {
+        if (session == null || studentNo == null) {
+            return false;
+        }
+        ConcurrentMap<String, Binding> inner = bySession.get(session);
+        return inner != null && inner.values().stream()
+                .anyMatch(binding -> studentNo.equals(binding.studentNo()));
     }
 
     /** 清空当堂 stu_XX 内存绑定(换课/重注册时);持久表不动。 */

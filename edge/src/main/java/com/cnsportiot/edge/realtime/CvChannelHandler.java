@@ -11,6 +11,9 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -36,6 +39,9 @@ public class CvChannelHandler extends TextWebSocketHandler {
     private final AtomicLong lastSeq = new AtomicLong(-1);
     private final AtomicLong gapCount = new AtomicLong();
     private final AtomicLong receivedCount = new AtomicLong();
+    private final AtomicLong payloadBytes = new AtomicLong();
+    private final AtomicLong parseErrorCount = new AtomicLong();
+    private final Map<String, AtomicLong> eventCounts = new ConcurrentHashMap<>();
 
     private volatile boolean connected;
     private volatile Instant lastEventAt;
@@ -82,13 +88,13 @@ public class CvChannelHandler extends TextWebSocketHandler {
         try {
             frame = objectMapper.readTree(message.getPayload());
         } catch (Exception e) {
+            parseErrorCount.incrementAndGet();
             log.warn("CV 事件解析失败,已丢弃: {}", abbreviate(message.getPayload()), e);
             return;
         }
 
         String typeName = frame.path("type").asText(null);
         WsEventType type = WsEventType.fromWire(typeName);
-        log.warn(String.valueOf(frame));
         if (type == null) {
             log.warn("未知 CV 事件类型,已忽略: {}", typeName);
             return;
@@ -96,6 +102,9 @@ public class CvChannelHandler extends TextWebSocketHandler {
 
         checkSeqGap(frame, type);
         receivedCount.incrementAndGet();
+        payloadBytes.addAndGet(message.getPayloadLength());
+        eventCounts.computeIfAbsent(typeName == null ? "unknown" : typeName,
+                key -> new AtomicLong()).incrementAndGet();
         lastEventAt = Instant.now();
 
         // payload 原样透传;WsHub 会重新序列化后扇出
@@ -137,8 +146,25 @@ public class CvChannelHandler extends TextWebSocketHandler {
         return receivedCount.get();
     }
 
+    public long gapCount() {
+        return gapCount.get();
+    }
+
+    public long payloadBytes() {
+        return payloadBytes.get();
+    }
+
+    public long parseErrorCount() {
+        return parseErrorCount.get();
+    }
+
+    public Map<String, Long> eventCounts() {
+        return eventCounts.entrySet().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        Map.Entry::getKey, entry -> entry.getValue().get()));
+    }
+
     private static String abbreviate(String s) {
         return s.length() <= 200 ? s : s.substring(0, 200) + "…";
     }
 }
-

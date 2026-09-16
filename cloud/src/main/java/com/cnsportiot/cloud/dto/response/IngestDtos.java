@@ -27,6 +27,9 @@ public final class IngestDtos {
     /** 10.4 gallery 登记 */
     public record GalleryRegisteredResponse(UUID galleryId, UUID studentId, int version, GalleryStatus status) {}
 
+    /** 10.4b 人脸身份绑定同步结果 */
+    public record FaceBindingSyncedResponse(UUID studentId, String studentNo, String globalId) {}
+
     /** 10.5 参课名单 gallery 预拉取 */
     public record GalleryPullResponse(UUID lessonId, List<GalleryPullStudent> students) {}
 
@@ -34,6 +37,7 @@ public final class IngestDtos {
             UUID studentId,
             String studentNo,
             String displayName,
+            boolean faceBound,
             DominantHand dominantHand,
             GalleryRef gallery) {}   // 空表示尚未注册特征
 

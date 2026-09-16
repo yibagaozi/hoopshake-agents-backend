@@ -25,7 +25,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
 
     /**
      * 运维 Agent 表现近窗聚合:对
-     * {@code chat_message.detail->'quality'} 近 N 小时汇总。仅学生对话落此信号
+     * {@code chat_message.detail->'quality'} 近 N 小时汇总。学生与教师对话都会落此信号
      * (用 {@code jsonb_exists(detail,'quality')} 过滤,避开 {@code ?} 与占位符冲突)。
      * 返回一行 7 列:answeredRuns, degradedRuns, ragHitRuns, avgAnswerChars,
      * toolOk, toolDeny, toolError。无数据时该行各列为 0/NULL(avg)
@@ -45,4 +45,24 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
               AND created_at >= :since
             """, nativeQuery = true)
     List<Object[]> aggregateAgentQualitySince(@Param("since") OffsetDateTime since);
+
+    /** Agent 表现按学生/教师会话分组,供运维台拆开查看两条链路。 */
+    @Query(value = """
+            SELECT
+              CASE WHEN cm.chat_session_id IN (SELECT id FROM teacher_chat_session)
+                   THEN 'TEACHER' ELSE 'STUDENT' END                            AS chat_type,
+              count(*)                                                                       AS answered_runs,
+              count(*) FILTER (WHERE (detail->'quality'->>'degraded') = 'true')              AS degraded_runs,
+              count(*) FILTER (WHERE COALESCE((detail->'quality'->>'ragHitCount')::int, 0) > 0) AS rag_hit_runs,
+              avg((detail->'quality'->>'answerChars')::numeric)                              AS avg_answer_chars,
+              COALESCE(sum((detail->'quality'->>'toolOk')::int), 0)                          AS tool_ok,
+              COALESCE(sum((detail->'quality'->>'toolDeny')::int), 0)                        AS tool_deny,
+              COALESCE(sum((detail->'quality'->>'toolError')::int), 0)                       AS tool_error
+            FROM chat_message cm
+            WHERE role = 'ASSISTANT'
+              AND jsonb_exists(detail, 'quality')
+              AND created_at >= :since
+            GROUP BY 1
+            """, nativeQuery = true)
+    List<Object[]> aggregateAgentQualityByChatTypeSince(@Param("since") OffsetDateTime since);
 }
