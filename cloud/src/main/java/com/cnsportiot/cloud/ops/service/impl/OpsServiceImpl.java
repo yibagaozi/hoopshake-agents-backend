@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 运维聚合实现。业务量走各仓储 count;Agent 表现走 chat_message.detail 近窗 jsonb 聚合;
@@ -87,6 +88,7 @@ public class OpsServiceImpl implements OpsService {
         OffsetDateTime since = OffsetDateTime.now().minusHours(win);
         try {
             List<Object[]> rows = chatMessageRepo.aggregateAgentQualitySince(since);
+            List<Object[]> sliceRows = chatMessageRepo.aggregateAgentQualityByChatTypeSince(since);
             Object[] r = (rows == null || rows.isEmpty()) ? null : rows.get(0);
             long answered = lng(r, 0);
             long degraded = lng(r, 1);
@@ -102,11 +104,12 @@ public class OpsServiceImpl implements OpsService {
                     ragHit, rate(ragHit, answered),
                     avgChars,
                     new ToolCounts(toolOk, toolDeny, toolError),
-                    rate(toolError, toolTotal));
+                    rate(toolError, toolTotal),
+                    qualitySlices(sliceRows));
         } catch (RuntimeException e) {
             log.warn("Agent 表现聚合失败,降级返回空 window={}h: {}", win, e.toString());
             return new AgentQualityResponse(win, 0, 0, null, 0, null, null,
-                    new ToolCounts(0, 0, 0), null);
+                    new ToolCounts(0, 0, 0), null, emptyQualitySlices());
         }
     }
 
@@ -158,6 +161,46 @@ public class OpsServiceImpl implements OpsService {
                 d.getDeviceId(), d.getName(), d.getCourtId(), d.getReportedStatus(), h,
                 d.getAppVersion(), d.getFirmware(), d.getIpAddress(),
                 d.getMetrics(), d.getLastError(), d.getLastSeenAt());
+    }
+
+    private static List<AgentQualitySlice> qualitySlices(List<Object[]> rows) {
+        Map<String, AgentQualitySlice> byType = new java.util.LinkedHashMap<>();
+        if (rows != null) {
+            for (Object[] row : rows) {
+                String chatType = String.valueOf(row[0]).toUpperCase();
+                byType.put(chatType, toQualitySlice(chatType, row, 1));
+            }
+        }
+        if (!byType.containsKey("STUDENT")) {
+            byType.put("STUDENT", emptyQualitySlice("STUDENT"));
+        }
+        if (!byType.containsKey("TEACHER")) {
+            byType.put("TEACHER", emptyQualitySlice("TEACHER"));
+        }
+        return List.of(byType.get("STUDENT"), byType.get("TEACHER"));
+    }
+
+    private static List<AgentQualitySlice> emptyQualitySlices() {
+        return List.of(emptyQualitySlice("STUDENT"), emptyQualitySlice("TEACHER"));
+    }
+
+    private static AgentQualitySlice emptyQualitySlice(String chatType) {
+        return new AgentQualitySlice(chatType, 0, 0, null, 0, null,
+                null, new ToolCounts(0, 0, 0), null);
+    }
+
+    private static AgentQualitySlice toQualitySlice(String chatType, Object[] row, int offset) {
+        long answered = lng(row, offset);
+        long degraded = lng(row, offset + 1);
+        long ragHit = lng(row, offset + 2);
+        long toolOk = lng(row, offset + 4);
+        long toolDeny = lng(row, offset + 5);
+        long toolError = lng(row, offset + 6);
+        long toolTotal = toolOk + toolDeny + toolError;
+        return new AgentQualitySlice(
+                chatType, answered, degraded, rate(degraded, answered),
+                ragHit, rate(ragHit, answered), dbl(row, offset + 3),
+                new ToolCounts(toolOk, toolDeny, toolError), rate(toolError, toolTotal));
     }
 
     private static String circuitName(int code) {

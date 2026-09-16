@@ -31,10 +31,12 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -165,6 +167,9 @@ public class TeacherChatServiceImpl implements TeacherChatService {
                 }
                 @Override public void onToolEvent(String name, String status, String label) {
                     if (r.finished.get()) return;
+                    if (!"running".equals(status)) {
+                        r.toolTrace.add(Map.of("name", name, "status", status));
+                    }
                     send(emitter, "tool", new ChatToolEvent(name, status, label));
                 }
                 @Override public void onComplete(String finishReason) {
@@ -218,6 +223,7 @@ public class TeacherChatServiceImpl implements TeacherChatService {
         try {
             messageRepo.findById(run.assistantMessageId).ifPresent(m -> {
                 m.setContent(run.buffer.toString());
+                m.setDetail(buildDetail(run, reason, error));
                 messageRepo.save(m);
             });
         } catch (RuntimeException e) {
@@ -234,6 +240,41 @@ public class TeacherChatServiceImpl implements TeacherChatService {
                     new ChatDoneEvent(run.assistantMessageId, reason, null, List.of()));
         }
         try { run.emitter.complete(); } catch (RuntimeException ignore) { }
+    }
+
+    /** 教师对话也写运维质量信号;无 RAG,但工具调用与错误需要进入 Agent 看板。 */
+    private Map<String, Object> buildDetail(ActiveRun run, String reason, Throwable error) {
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("agentType", "teaching_analyst");
+        detail.put("chatType", "teacher");
+        detail.put("tools", new ArrayList<>(run.toolTrace));
+        detail.put("finishReason", reason);
+        if (error != null) {
+            detail.put("error", true);
+        }
+
+        Map<String, Object> quality = new LinkedHashMap<>();
+        quality.put("ragHitCount", 0);
+        quality.put("ragMaxScore", null);
+        int toolOk = 0, toolDeny = 0, toolError = 0;
+        for (Map<String, Object> tool : run.toolTrace) {
+            String status = String.valueOf(tool.get("status")).toLowerCase();
+            if (status.contains("deny")) {
+                toolDeny++;
+            } else if (status.contains("error")) {
+                toolError++;
+            } else {
+                toolOk++;
+            }
+        }
+        quality.put("toolOk", toolOk);
+        quality.put("toolDeny", toolDeny);
+        quality.put("toolError", toolError);
+        quality.put("finishReason", reason);
+        quality.put("answerChars", run.buffer.length());
+        quality.put("degraded", error != null);
+        detail.put("quality", quality);
+        return detail;
     }
 
     // 辅助
@@ -320,6 +361,7 @@ public class TeacherChatServiceImpl implements TeacherChatService {
         final SseEmitter emitter;
         final StringBuilder buffer = new StringBuilder();
         final AtomicBoolean finished = new AtomicBoolean(false);
+        final List<Map<String, Object>> toolTrace = new CopyOnWriteArrayList<>();
         volatile LlmGateway.StreamHandle handle;
         volatile ScheduledFuture<?> heartbeat;
         volatile Runnable release;       // 释放舱壁许可;null 表示未占用
@@ -340,4 +382,3 @@ public class TeacherChatServiceImpl implements TeacherChatService {
         }
     }
 }
-
