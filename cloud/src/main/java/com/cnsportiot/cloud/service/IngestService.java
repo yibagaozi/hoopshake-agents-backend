@@ -20,6 +20,9 @@ public interface IngestService {
     /** 10.4 gallery 特征注册 */
     GalleryRegisteredResponse registerGallery(RegisterGalleryRequest request);
 
+    /** 10.4b 现场人脸身份绑定同步 */
+    FaceBindingSyncedResponse syncFaceBinding(SyncFaceBindingRequest request);
+
     /** 10.5 gallery 拉取 */
     GalleryPullResponse pullGallery(UUID lessonId);
 }

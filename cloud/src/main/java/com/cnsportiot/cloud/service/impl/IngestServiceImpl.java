@@ -32,6 +32,7 @@ public class IngestServiceImpl implements IngestService {
     private final ActionClipRepository actionClipRepository;
     private final InstantFeedbackRepository instantFeedbackRepository;
     private final ReidGalleryRepository reidGalleryRepository;
+    private final FaceIdentityBindingRepository faceIdentityBindingRepository;
     private final StudentRepository studentRepository;
     private final LessonEnrollmentRepository lessonEnrollmentRepository;
     private final SessionAggregateRepository sessionAggregateRepository;
@@ -292,6 +293,50 @@ public class IngestServiceImpl implements IngestService {
     }
 
     @Override
+    @Transactional
+    public FaceBindingSyncedResponse syncFaceBinding(SyncFaceBindingRequest request) {
+        Student student = request.studentId() != null
+                ? studentRepository.findById(request.studentId()).orElse(null)
+                : studentRepository.findByStudentNo(request.studentNo()).orElse(null);
+        if (student == null || !student.getStudentNo().equals(request.studentNo())) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "学生身份不存在或学号不匹配");
+        }
+
+        FaceIdentityBinding byGlobalId = faceIdentityBindingRepository
+                .findByGlobalId(request.globalId()).orElse(null);
+        if (byGlobalId != null && !student.getId().equals(byGlobalId.getStudentId())) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT, "global_id 已绑定其他学生");
+        }
+
+        FaceIdentityBinding binding = byGlobalId != null ? byGlobalId
+                : faceIdentityBindingRepository.findByStudentId(student.getId()).orElse(null);
+        if (binding == null) {
+            binding = FaceIdentityBinding.builder()
+                    .studentId(student.getId())
+                    .studentNo(student.getStudentNo())
+                    .globalId(request.globalId())
+                    .localId(request.localId())
+                    .lessonId(request.lessonId())
+                    .edgeId(request.edgeId())
+                    .boundAt(request.boundAt() == null ? OffsetDateTime.now() : request.boundAt())
+                    .build();
+        } else {
+            binding.setStudentId(student.getId());
+            binding.setStudentNo(student.getStudentNo());
+            binding.setGlobalId(request.globalId());
+            binding.setLocalId(request.localId());
+            binding.setLessonId(request.lessonId());
+            binding.setEdgeId(request.edgeId());
+            binding.setBoundAt(request.boundAt() == null ? OffsetDateTime.now() : request.boundAt());
+        }
+        faceIdentityBindingRepository.save(binding);
+
+        log.info("人脸身份绑定已同步 studentId={} studentNo={} globalId={}",
+                student.getId(), student.getStudentNo(), request.globalId());
+        return new FaceBindingSyncedResponse(student.getId(), student.getStudentNo(), request.globalId());
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public GalleryPullResponse pullGallery(UUID lessonId) {
         if (lessonId == null) {
@@ -307,13 +352,20 @@ public class IngestServiceImpl implements IngestService {
         var galleryMap = new java.util.HashMap<UUID, ReidGallery>();
         galleries.forEach(g -> galleryMap.put(g.getStudentId(), g));
 
+        var faceBindings = faceIdentityBindingRepository.findByStudentIdIn(studentIds);
+        var faceBoundIds = faceBindings.stream()
+                .map(FaceIdentityBinding::getStudentId)
+                .collect(java.util.stream.Collectors.toSet());
+
+        var rosterRefs = studentRepository.findRosterRefsByStudentIdIn(studentIds).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        StudentRepository.RosterRef::getStudentId, ref -> ref, (a, b) -> a));
+
         List<GalleryPullStudent> students = new ArrayList<>();
         for (UUID studentId : studentIds) {
-            var student = studentRepository.findById(studentId).orElse(null);
-            if (student == null) continue;
+            var roster = rosterRefs.get(studentId);
+            if (roster == null) continue;
 
-            var account = new Object() { String displayName = null; };
-            // displayName 来自 account 表,此处简化取 studentNo 代替
             GalleryRef ref = null;
             ReidGallery g = galleryMap.get(studentId);
             if (g != null) {
@@ -321,8 +373,8 @@ public class IngestServiceImpl implements IngestService {
             }
 
             students.add(new GalleryPullStudent(
-                    studentId, student.getStudentNo(), student.getStudentNo(),
-                    student.getDominantHand(), ref));
+                    studentId, roster.getStudentNo(), roster.getDisplayName(),
+                    faceBoundIds.contains(studentId), roster.getDominantHand(), ref));
         }
 
         return new GalleryPullResponse(lessonId, students);

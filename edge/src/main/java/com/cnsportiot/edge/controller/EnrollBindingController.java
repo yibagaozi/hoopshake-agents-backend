@@ -4,6 +4,7 @@ import com.cnsportiot.contracts.common.ApiResponse;
 import com.cnsportiot.contracts.error.BusinessException;
 import com.cnsportiot.contracts.error.ErrorCode;
 import com.cnsportiot.edge.config.EdgeProperties;
+import com.cnsportiot.edge.cloudsync.CloudIngestClient;
 import com.cnsportiot.edge.domain.RosterEntry;
 import com.cnsportiot.edge.identity.EnrollLauncher;
 import com.cnsportiot.edge.identity.EnrollLauncher.EnrollRunStatus;
@@ -16,6 +17,8 @@ import jakarta.validation.constraints.NotEmpty;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -25,6 +28,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 现场人脸注册绑定(首次运行:采集人脸→看脸输学号→关联 UUID→本地缓存,不上云)。
@@ -37,20 +41,24 @@ import java.util.Map;
 @RequestMapping("/local/enroll")
 public class EnrollBindingController {
 
+    private static final Logger log = LoggerFactory.getLogger(EnrollBindingController.class);
+
     private final EdgeProperties props;
     private final IdentityBindingStore bindings;
     private final RosterService rosterService;
     private final ObjectMapper objectMapper;
     private final EnrollLauncher enrollLauncher;
+    private final CloudIngestClient cloudClient;
 
     public EnrollBindingController(EdgeProperties props, IdentityBindingStore bindings,
                                    RosterService rosterService, ObjectMapper objectMapper,
-                                   EnrollLauncher enrollLauncher) {
+                                   EnrollLauncher enrollLauncher, CloudIngestClient cloudClient) {
         this.props = props;
         this.bindings = bindings;
         this.rosterService = rosterService;
         this.objectMapper = objectMapper;
         this.enrollLauncher = enrollLauncher;
+        this.cloudClient = cloudClient;
     }
 
     /**
@@ -141,7 +149,9 @@ public class EnrollBindingController {
             String displayName = entry != null ? entry.displayName() : null;
             Binding b = new Binding(it.studentNo(), studentId, displayName);
             bindings.bind(request.session(), it.localId(), it.globalId(), b);
-            out.add(new BoundPerson(it.localId(), it.globalId(), it.studentNo(), studentId, displayName, entry != null));
+            boolean cloudSynced = syncToCloud(request.session(), it, studentId, entry != null);
+            out.add(new BoundPerson(it.localId(), it.globalId(), it.studentNo(), studentId,
+                    displayName, entry != null, cloudSynced));
         }
         return ApiResponse.ok(out);
     }
@@ -164,6 +174,29 @@ public class EnrollBindingController {
 
     private Path algoSessionDir(String session) {
         return Path.of(props.getLive().getAlgoOutputsDir(), session);
+    }
+
+    private boolean syncToCloud(String session, BindItem item, String studentId, boolean matchedInRoster) {
+        if (!matchedInRoster || item.globalId() == null || item.globalId().isBlank()) {
+            return false;
+        }
+        try {
+            cloudClient.syncFaceBinding(parseLessonId(session), item.localId(), item.globalId(),
+                    studentId, item.studentNo(), props.getEdgeId());
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("人脸绑定上云失败 session={} studentNo={} globalId={}: {}",
+                    session, item.studentNo(), item.globalId(), e.getMessage());
+            return false;
+        }
+    }
+
+    private static UUID parseLessonId(String session) {
+        try {
+            return UUID.fromString(session);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private static String asStr(Object v) {
@@ -195,5 +228,6 @@ public class EnrollBindingController {
             @NotBlank String studentNo) {}
 
     public record BoundPerson(String localId, String globalId, String studentNo,
-                              String studentId, String displayName, boolean matchedInRoster) {}
+                              String studentId, String displayName, boolean matchedInRoster,
+                              boolean cloudSynced) {}
 }

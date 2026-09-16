@@ -42,10 +42,15 @@ public class IngestController {
         return ApiResponse.ok(ingestService.registerGallery(request));
     }
 
+    @PostMapping("/face-bindings")
+    public ApiResponse<FaceBindingSyncedResponse> syncFaceBinding(
+            @Valid @RequestBody SyncFaceBindingRequest request) {
+        return ApiResponse.ok(ingestService.syncFaceBinding(request));
+    }
+
     @GetMapping("/gallery/pull")
     public ApiResponse<GalleryPullResponse> pullGallery(@RequestParam UUID lessonId) {
         return ApiResponse.ok(ingestService.pullGallery(lessonId));
     }
 }
-
 

@@ -59,11 +59,13 @@ public class CloudIngestClient {
     @SuppressWarnings("unchecked")
     private static RosterEntry toRosterEntry(Map<String, Object> m) {
         Map<String, Object> g = (Map<String, Object>) m.get("gallery");
+        boolean faceBound = Boolean.TRUE.equals(m.get("faceBound"));
         return new RosterEntry(
                 UUID.fromString((String) m.get("studentId")),
                 (String) m.get("studentNo"),
                 (String) m.get("displayName"),
                 (String) m.get("dominantHand"),
+                faceBound,
                 g == null ? null : UUID.fromString((String) g.get("galleryId")),
                 g == null ? null : (Integer) g.get("version"),
                 g == null ? null : (String) g.get("storageUri"),
@@ -81,6 +83,34 @@ public class CloudIngestClient {
                     .toBodilessEntity();
         } catch (RestClientException e) {
             throw new BusinessException(EdgeErrorCode.CLOUD_UNREACHABLE, "Session 上报失败");
+        }
+    }
+
+    /** 现场人脸身份绑定同步(global_id ↔ 学号/studentId);断网时由调用方保留本地绑定。 */
+    public void syncFaceBinding(UUID lessonId, String localId, String globalId,
+                                String studentId, String studentNo, String edgeId) {
+        if (globalId == null || globalId.isBlank()) {
+            return;
+        }
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        if (studentId != null) {
+            body.put("studentId", studentId);
+        }
+        body.put("studentNo", studentNo);
+        body.put("globalId", globalId);
+        body.put("localId", localId);
+        if (lessonId != null) {
+            body.put("lessonId", lessonId.toString());
+        }
+        body.put("edgeId", edgeId);
+        try {
+            restClient.post()
+                    .uri("/api/ingest/face-bindings")
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException e) {
+            throw new BusinessException(EdgeErrorCode.CLOUD_UNREACHABLE, "人脸绑定同步失败");
         }
     }
 

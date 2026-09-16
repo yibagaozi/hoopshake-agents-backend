@@ -1,6 +1,7 @@
 package com.cnsportiot.cloud.service.impl;
 
 import com.cnsportiot.cloud.domain.entity.ActionClip;
+import com.cnsportiot.cloud.domain.entity.FaceIdentityBinding;
 import com.cnsportiot.cloud.domain.entity.InstantFeedback;
 import com.cnsportiot.cloud.domain.entity.ReidGallery;
 import com.cnsportiot.cloud.domain.entity.SessionAggregate;
@@ -45,6 +46,7 @@ class IngestServiceImplTest {
     private ActionClipRepository clipRepo;
     private InstantFeedbackRepository feedbackRepo;
     private ReidGalleryRepository galleryRepo;
+    private FaceIdentityBindingRepository faceBindingRepo;
     private StudentRepository studentRepo;
     private LessonEnrollmentRepository enrollmentRepo;
     private SessionAggregateRepository aggRepo;
@@ -56,10 +58,11 @@ class IngestServiceImplTest {
         clipRepo = mock(ActionClipRepository.class);
         feedbackRepo = mock(InstantFeedbackRepository.class);
         galleryRepo = mock(ReidGalleryRepository.class);
+        faceBindingRepo = mock(FaceIdentityBindingRepository.class);
         studentRepo = mock(StudentRepository.class);
         enrollmentRepo = mock(LessonEnrollmentRepository.class);
         aggRepo = mock(SessionAggregateRepository.class);
-        ingest = new IngestServiceImpl(sessionRepo, clipRepo, feedbackRepo, galleryRepo,
+        ingest = new IngestServiceImpl(sessionRepo, clipRepo, feedbackRepo, galleryRepo, faceBindingRepo,
                 studentRepo, enrollmentRepo, aggRepo);
     }
 
@@ -280,6 +283,57 @@ class IngestServiceImplTest {
         assertThat(r.version()).isEqualTo(3);
     }
 
+    @Test void syncFaceBinding_createsGlobalIdToStudentMapping() {
+        Student student = mock(Student.class);
+        when(student.getId()).thenReturn(STU_A);
+        when(student.getStudentNo()).thenReturn("2021001");
+        when(studentRepo.findById(STU_A)).thenReturn(Optional.of(student));
+        when(faceBindingRepo.findByGlobalId("stu_global_01")).thenReturn(Optional.empty());
+        when(faceBindingRepo.findByStudentId(STU_A)).thenReturn(Optional.empty());
+        ArgumentCaptor<FaceIdentityBinding> cap = ArgumentCaptor.forClass(FaceIdentityBinding.class);
+        when(faceBindingRepo.save(cap.capture())).thenAnswer(i -> i.getArgument(0));
+
+        FaceBindingSyncedResponse r = ingest.syncFaceBinding(new SyncFaceBindingRequest(
+                STU_A, "2021001", "stu_global_01", "stu_00", LESSON, "edge-01", null));
+
+        assertThat(r.studentId()).isEqualTo(STU_A);
+        assertThat(r.globalId()).isEqualTo("stu_global_01");
+        assertThat(cap.getValue().getStudentNo()).isEqualTo("2021001");
+        assertThat(cap.getValue().getLocalId()).isEqualTo("stu_00");
+    }
+
+    @Test void syncFaceBinding_rebindsSameStudentToNewGlobalId() {
+        Student student = mock(Student.class);
+        when(student.getId()).thenReturn(STU_A);
+        when(student.getStudentNo()).thenReturn("2021001");
+        when(studentRepo.findById(STU_A)).thenReturn(Optional.of(student));
+        FaceIdentityBinding old = mock(FaceIdentityBinding.class);
+        when(faceBindingRepo.findByGlobalId("stu_global_02")).thenReturn(Optional.empty());
+        when(faceBindingRepo.findByStudentId(STU_A)).thenReturn(Optional.of(old));
+        when(faceBindingRepo.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        ingest.syncFaceBinding(new SyncFaceBindingRequest(
+                STU_A, "2021001", "stu_global_02", "stu_00", LESSON, "edge-01", null));
+
+        verify(old).setGlobalId("stu_global_02");
+        verify(old).setLocalId("stu_00");
+    }
+
+    @Test void syncFaceBinding_rejectsGlobalIdOwnedByAnotherStudent() {
+        Student student = mock(Student.class);
+        when(student.getId()).thenReturn(STU_A);
+        when(student.getStudentNo()).thenReturn("2021001");
+        when(studentRepo.findById(STU_A)).thenReturn(Optional.of(student));
+        FaceIdentityBinding other = mock(FaceIdentityBinding.class);
+        when(other.getStudentId()).thenReturn(STU_B);
+        when(faceBindingRepo.findByGlobalId("stu_global_03")).thenReturn(Optional.of(other));
+
+        assertThatThrownBy(() -> ingest.syncFaceBinding(new SyncFaceBindingRequest(
+                STU_A, "2021001", "stu_global_03", "stu_00", LESSON, "edge-01", null)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).errorCode()).isEqualTo(ErrorCode.STATE_CONFLICT));
+    }
+
     // ================= pullGallery =================
 
     @Test void pullGallery_nullLessonId_paramInvalid() {
@@ -297,30 +351,44 @@ class IngestServiceImplTest {
 
     @Test void pullGallery_mapsGalleryRefWhenPresent_nullWhenAbsent() {
         when(enrollmentRepo.findStudentIdsByLessonId(LESSON)).thenReturn(List.of(STU_A, STU_B));
-        Student sa = mock(Student.class);
-        Student sb = mock(Student.class);
-        when(studentRepo.findById(STU_A)).thenReturn(Optional.of(sa));
-        when(studentRepo.findById(STU_B)).thenReturn(Optional.of(sb));
+        when(studentRepo.findRosterRefsByStudentIdIn(any())).thenReturn(List.of(
+                rosterRef(STU_A, "2021001", "张三"),
+                rosterRef(STU_B, "2021002", "李四")));
         ReidGallery ga = mock(ReidGallery.class);
         when(ga.getStudentId()).thenReturn(STU_A);
         when(galleryRepo.findByStudentIdInAndStatus(any(), eq(GalleryStatus.ACTIVE))).thenReturn(List.of(ga));
+        FaceIdentityBinding bound = mock(FaceIdentityBinding.class);
+        when(bound.getStudentId()).thenReturn(STU_B);
+        when(faceBindingRepo.findByStudentIdIn(any())).thenReturn(List.of(bound));
 
         GalleryPullResponse r = ingest.pullGallery(LESSON);
         assertThat(r.students()).hasSize(2);
         assertThat(r.students().get(0).gallery()).isNotNull();   // STU_A 有 active gallery
         assertThat(r.students().get(1).gallery()).isNull();      // STU_B 无
+        assertThat(r.students().get(0).displayName()).isEqualTo("张三");  // 不再回落学号
+        assertThat(r.students().get(1).faceBound()).isTrue();    // 绑定状态可下发
     }
 
     @Test void pullGallery_skipsMissingStudent() {
         when(enrollmentRepo.findStudentIdsByLessonId(LESSON)).thenReturn(List.of(STU_A));
-        when(studentRepo.findById(STU_A)).thenReturn(Optional.empty());   // 名单里但档案缺失
+        when(studentRepo.findRosterRefsByStudentIdIn(any())).thenReturn(List.of());   // 名单里但档案缺失
         when(galleryRepo.findByStudentIdInAndStatus(any(), any())).thenReturn(List.of());
+        when(faceBindingRepo.findByStudentIdIn(any())).thenReturn(List.of());
 
         GalleryPullResponse r = ingest.pullGallery(LESSON);
         assertThat(r.students()).isEmpty();
     }
 
     // ================= helpers =================
+
+    private static StudentRepository.RosterRef rosterRef(UUID id, String no, String name) {
+        return new StudentRepository.RosterRef() {
+            @Override public UUID getStudentId() { return id; }
+            @Override public String getStudentNo() { return no; }
+            @Override public String getDisplayName() { return name; }
+            @Override public com.cnsportiot.contracts.enums.DominantHand getDominantHand() { return null; }
+        };
+    }
 
     private UpsertSessionRequest upsertReq(SessionStatus status) {
         return new UpsertSessionRequest(LESSON, status, null, null, null, null, null, null, null);

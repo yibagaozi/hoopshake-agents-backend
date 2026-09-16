@@ -85,6 +85,16 @@ public final class IngestRequests {
             OffsetDateTime enrolledAt,
             UUID operatorAccountId) {}
 
+    /** 10.4b 现场人脸身份绑定同步(global_id ↔ 学号/studentId) */
+    public record SyncFaceBindingRequest(
+            UUID studentId,
+            @NotBlank @Size(max = 32) String studentNo,
+            @NotBlank @Size(max = 64) String globalId,
+            @NotBlank @Size(max = 64) String localId,
+            UUID lessonId,
+            @Size(max = 64) String edgeId,
+            OffsetDateTime boundAt) {}
+
     /** 10.6 边缘心跳 */
     public record EdgeHeartbeatRequest(
             @NotBlank String edgeId,
@@ -133,4 +143,3 @@ public final class IngestRequests {
         }
     }
 }
-
