@@ -9,6 +9,7 @@ import com.cnsportiot.cloud.harness.llm.LlmGateway;
 import com.cnsportiot.cloud.harness.llm.RetryFallback;
 import com.cnsportiot.cloud.harness.llm.Sleeper;
 import com.cnsportiot.cloud.harness.llm.TokenBudget;
+import com.cnsportiot.cloud.harness.llm.TokenEstimator;
 import com.cnsportiot.cloud.harness.llm.TransientErrors;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -18,6 +19,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -29,6 +31,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -149,10 +152,26 @@ public class SpringAiLlmGateway implements LlmGateway {
                 req = req.tools((Object[]) callbacks.toArray(new ToolCallback[0]));
             }
 
-            d = req.stream().content().subscribe(
-                    text -> { state.emitted.set(true); settleSuccess(state); sink.onDelta(text); },
+            // 用 chatResponse() 而非 content():除正文增量外还能拿到提供方回传的 usage(常只在末帧出现)
+            final ModelSpec attemptSpec = attempts.get(idx);
+            d = req.stream().chatResponse().subscribe(
+                    resp -> {
+                        captureUsage(state, resp);
+                        String text = textOf(resp);
+                        if (text == null || text.isEmpty()) {
+                            return;   // 末帧常只带 usage 无正文:不当作"已产出",以免挡住降级
+                        }
+                        state.emitted.set(true);
+                        state.estimatedOutTokens.addAndGet(TokenEstimator.estimate(text));
+                        settleSuccess(state);
+                        sink.onDelta(text);
+                    },
                     err -> onAttemptError(err, idx, attempts, request, messages, sink, state),
-                    () -> { settleSuccess(state); sink.onComplete("stop"); });
+                    () -> {
+                        settleSuccess(state);
+                        emitUsage(request, sink, state, attemptSpec);
+                        sink.onComplete("stop");
+                    });
         } catch (RuntimeException e) {
             onAttemptError(e, idx, attempts, request, messages, sink, state);
             return;
@@ -178,7 +197,62 @@ public class SpringAiLlmGateway implements LlmGateway {
             }
         } else {
             settleFailure(state);   // 终态失败:计入熔断
+            // 失败也要结账:已经烧掉的输入/部分输出仍应计入用量,否则失败重试可绕开配额
+            emitUsage(request, sink, state, attempts.get(Math.min(idx, attempts.size() - 1)));
             sink.onError(err);
+        }
+    }
+
+    /** 从一帧响应里捞 usage;流式下常只有末帧带,取合计最大的那帧(防某些实现分帧乱序)。 */
+    private static void captureUsage(StreamState state, ChatResponse resp) {
+        if (resp == null || resp.getMetadata() == null) {
+            return;
+        }
+        var u = resp.getMetadata().getUsage();
+        if (u == null) {
+            return;
+        }
+        Integer p = u.getPromptTokens();
+        Integer c = u.getCompletionTokens();
+        if (p == null && c == null) {
+            return;
+        }
+        LlmGateway.Usage candidate = new LlmGateway.Usage(
+                p == null ? 0 : p, c == null ? 0 : c, resp.getMetadata().getModel(), false);
+        state.usage.accumulateAndGet(candidate,
+                (prev, next) -> prev == null || next.totalTokens() >= prev.totalTokens() ? next : prev);
+    }
+
+    private static String textOf(ChatResponse resp) {
+        if (resp == null || resp.getResult() == null || resp.getResult().getOutput() == null) {
+            return null;
+        }
+        return resp.getResult().getOutput().getText();
+    }
+
+    /**
+     * 回调本轮用量,至多一次。提供方回传了就用实测值;没回传则按
+     * system+history+user 估输入、按已产出增量估输出({@code estimated=true})。
+     */
+    private static void emitUsage(StreamRequest request, StreamSink sink, StreamState state, ModelSpec spec) {
+        if (!state.usageEmitted.compareAndSet(false, true)) {
+            return;
+        }
+        LlmGateway.Usage u = state.usage.get();
+        if (u == null) {
+            int in = TokenEstimator.estimate(request.system()) + TokenEstimator.estimate(request.user());
+            if (request.history() != null) {
+                for (Turn t : request.history()) {
+                    in += TokenEstimator.estimate(t.content());
+                }
+            }
+            u = new LlmGateway.Usage(in, state.estimatedOutTokens.get(),
+                    spec == null ? null : spec.getModel(), true);
+        }
+        try {
+            sink.onUsage(u);
+        } catch (RuntimeException ignore) {
+            // 用量回调失败不能影响对话本身
         }
     }
 
@@ -196,11 +270,16 @@ public class SpringAiLlmGateway implements LlmGateway {
 
     @Override
     public Optional<String> complete(CompletionRequest request) {
+        return completeWithUsage(request).map(CompletionResult::content);
+    }
+
+    @Override
+    public Optional<CompletionResult> completeWithUsage(CompletionRequest request) {
         if (breaker != null && !breaker.allow()) {
             return Optional.empty();   // 熔断打开:快速失败,调用方退回规则/兜底
         }
         try {
-            String content = RetryFallback.execute(
+            ChatResponse resp = RetryFallback.execute(
                     List.of(props.specForTier(request.tier()), props.getFallback()),
                     props.getMaxRetries(), TransientErrors::isTransient,
                     spec -> chatClient.prompt()
@@ -208,12 +287,29 @@ public class SpringAiLlmGateway implements LlmGateway {
                             .user(request.user() == null ? "" : request.user())
                             .options(buildOptions(spec, request.maxTokens()))
                             .call()
-                            .content(),
+                            .chatResponse(),
                     backoff, Sleeper.REAL);
             if (breaker != null) {
                 breaker.onSuccess();
             }
-            return Optional.ofNullable(content);
+            String content = textOf(resp);
+            if (content == null) {
+                return Optional.empty();
+            }
+            LlmGateway.Usage usage = null;
+            if (resp.getMetadata() != null && resp.getMetadata().getUsage() != null) {
+                Integer p = resp.getMetadata().getUsage().getPromptTokens();
+                Integer c = resp.getMetadata().getUsage().getCompletionTokens();
+                if (p != null || c != null) {
+                    usage = new LlmGateway.Usage(p == null ? 0 : p, c == null ? 0 : c,
+                            resp.getMetadata().getModel(), false);
+                }
+            }
+            if (usage == null) {
+                usage = LlmGateway.Usage.estimate(request.system(), request.user(), content,
+                        props.specForTier(request.tier()).getModel());
+            }
+            return Optional.of(new CompletionResult(content, usage));
         } catch (RuntimeException e) {
             if (breaker != null) {
                 breaker.onFailure();
@@ -254,5 +350,10 @@ public class SpringAiLlmGateway implements LlmGateway {
         final AtomicBoolean cancelled = new AtomicBoolean(false);
         final AtomicBoolean settled = new AtomicBoolean(false);   // 熔断成功/失败只记一次
         final AtomicReference<Disposable> current = new AtomicReference<>();
+        /** 提供方回传的实测 usage;null = 未回传,收尾时改用估算 */
+        final AtomicReference<LlmGateway.Usage> usage = new AtomicReference<>();
+        final AtomicBoolean usageEmitted = new AtomicBoolean(false);   // onUsage 至多一次
+        /** 估算兜底用:按增量累加的输出 token,避免再持有一份全文 */
+        final AtomicInteger estimatedOutTokens = new AtomicInteger();
     }
 }
