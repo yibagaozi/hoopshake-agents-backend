@@ -54,6 +54,9 @@ public class AgentProperties {
     @NestedConfigurationProperty
     private Baseline baseline = new Baseline();
 
+    @NestedConfigurationProperty
+    private Quota quota = new Quota();
+
     /** 按档位取模型规格。业务/网关用 {@link Tier} 枚举,不直接摸字符串 */
     public ModelSpec specForTier(Tier tier) {
         return switch (tier == null ? Tier.STANDARD : tier) {
@@ -286,5 +289,40 @@ public class AgentProperties {
         /** 排除的死值关节(如 right_wrist 恒 180) */
         private java.util.List<String> deadJoints =
                 new java.util.ArrayList<>(java.util.List.of("right_wrist"));
+    }
+
+    // ---- 单用户周用量配额 ----
+
+    /**
+     * 单账号周token 配额。窗口为自然周(周一 00:00 起,{@code zone} 指定时区),
+     * 到点自动清零——不另设定时任务,判定时按窗口起点聚合流水即可。
+     *
+     * <pre>
+     * hoopshake:
+     *   agent:
+     *     quota:
+     *       enabled: true
+     *       zone: Asia/Shanghai
+     *       weekly-tokens-student: 300000
+     *       weekly-tokens-teacher: 1000000
+     *       weekly-tokens-admin: 0      # 0 = 不限
+     *       warn-ratio: 0.8
+     * </pre>
+     */
+    @Getter
+    @Setter
+    public static class Quota {
+        /** 总开关。关闭时不拦截,但仍然记账(审计不受影响) */
+        private boolean enabled = true;
+        /** 自然周窗口所用时区 */
+        private String zone = "Asia/Shanghai";
+        /** 学生每周 token 上限;<=0 表示不限 */
+        private long weeklyTokensStudent = 300_000L;
+        /** 教师每周 token 上限;<=0 表示不限 */
+        private long weeklyTokensTeacher = 1_000_000L;
+        /** 管理员每周 token 上限;默认 0 = 不限 */
+        private long weeklyTokensAdmin = 0L;
+        /** 用量达该比例即在前端提示中置 warning(0~1) */
+        private double warnRatio = 0.8;
     }
 }

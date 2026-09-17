@@ -93,7 +93,16 @@ public final class StudentDataDtos {
 
     public record Weekly(int sessions, int clips, Double madeRate) {}
 
-    public record FocusCheckpoint(String checkpointId, String label, double progress, double improvementPct) {}
+    /**
+     * 本周重点检查点。
+     *
+     * @param checkpointId   检查点 id,前端可据此查 /api/meta/vocabulary 自行兜底
+     * @param label          中文名;未知时为 null,不会回填成 id
+     * @param progress       达标率,取值 0~1(不是百分数)
+     * @param improvementPct 相对上一次训练的变化(百分点)。null = 无上次数据、不可比;
+     *                       0 = 确实持平。前端不要把 null 渲染成 "+0%"
+     */
+    public record FocusCheckpoint(String checkpointId, String label, double progress, Double improvementPct) {}
 
     public record ActionTypeStat(String actionType, int clipCount, Double madeRate) {}
 

@@ -9,12 +9,19 @@ import java.util.UUID;
 public final class HelpRequestDtos {
     private HelpRequestDtos() {}
 
-    /** 学生视角:自己的工单 */
+    /**
+     * 学生视角:自己的工单。
+     *
+     * @param status      PENDING(待查看) / VIEWED(教师已看) / RESOLVED(已答复) / DISMISSED(已关闭)
+     * @param teacherName 处理教师姓名;未处理时为 null
+     * @param teacherReply 教师回复正文;未回复时为 null
+     */
     public record HelpRequestResponse(
             UUID id,
             UUID sessionId,
             String question,
             HelpRequestStatus status,
+            String teacherName,
             String teacherReply,
             OffsetDateTime createdAt,
             OffsetDateTime handledAt) {}
