@@ -17,13 +17,19 @@ public final class ChatDtos {
             OffsetDateTime createdAt,
             OffsetDateTime updatedAt) {}
 
-    /** 3.3 会话消息 */
+    /** 3.3 会话消息
+     * @param finishReason 仅 ASSISTANT 有值:{@code stop}=正常结束、{@code interrupted}=被中断、
+     *                     {@code error}=生成出错、{@code truncated}=达到长度上限被截断。
+     *                     前端据此在历史里标注"回答未完成",不要把半句话当成正常回答渲染。
+     *                     历史消息(本字段上线前落库的)可能为 null,按 stop 处理。
+     */
     public record ChatMessageResponse(
             UUID messageId,
             MessageRole role,
             String content,
             Integer tokenUsage,   // 仅 ASSISTANT
-            OffsetDateTime createdAt) {}
+            OffsetDateTime createdAt,
+            String finishReason) {}
 
     // ===== 3.4 SSE 事件负载 =====
 

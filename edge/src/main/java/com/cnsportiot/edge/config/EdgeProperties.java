@@ -48,6 +48,8 @@ public class EdgeProperties {
 
     private Enroll enroll = new Enroll();
 
+    private Calibration calibration = new Calibration();
+
     private Telemetry telemetry = new Telemetry();
 
     @Getter
@@ -218,6 +220,70 @@ public class EdgeProperties {
         private Map<String, String> env = new LinkedHashMap<>();
         /** 单次采集墙钟上限,超时强杀并标记 FAILED。 */
         private Duration timeout = Duration.ofMinutes(5);
+    }
+
+    /**
+     * 球场标定编排(直播课口径,见《球场控制点标定》§直播课 v2.2.0)。
+     *
+     * <p>产物目录按课程隔离:{@code {workDir}/{output-root}/{dir-prefix}{课程id}/},
+     * 即 {@code data/calibration/live_{lessonId}/} —— <b>绝不覆盖离线的 v2_4cam_zoned</b>。
+     * 上课拉起 CV 前先查这个目录里的必备文件,缺就按配置自动跑一次标定。
+     *
+     * <pre>
+     * hoopshake:
+     *   edge:
+     *     calibration:
+     *       enabled: true
+     *       python-executable: C:/.../python.exe
+     *       script-path: scripts/run_live_ws.py
+     *       work-dir: C:/hoopshake/algo
+     *       output-root: data/calibration
+     *       dir-prefix: live_
+     *       required-files: [cameras.json, camera_centers_world.json]
+     *       required-cameras: [cam_01, cam_02, cam_03]
+     *       auto-on-start: false      # 标定需人工标注,默认不自动拉起
+     *       block-cv-when-missing: true
+     * </pre>
+     */
+    @Getter
+    @Setter
+    public static class Calibration {
+        /** 编排总开关。关时状态接口仍可读(只查文件),但不会拉起标定进程 */
+        private boolean enabled = false;
+        /** python 可执行文件(建议与 enroll/cv 同一个 conda 环境) */
+        private String pythonExecutable = "python";
+        /** {@code run_live_ws.py} 相对 workDir 的路径 */
+        private String scriptPath = "scripts/run_live_ws.py";
+        /** 算法仓库根目录({@code PYTHONPATH=.} 相对此目录);null 用进程当前目录 */
+        private String workDir;
+        /** 标定产物根目录,相对 workDir(算法默认写 data/calibration) */
+        private String outputRoot = "data/calibration";
+        /** 产物子目录前缀:直播课产物为 {@code live_{session}},与离线 v2_4cam_zoned 隔离 */
+        private String dirPrefix = "live_";
+        /** 判定"已标定"必须存在的文件(相对产物目录) */
+        private List<String> requiredFiles =
+                new ArrayList<>(List.of("cameras.json", "camera_centers_world.json"));
+        /** 必须各有一份 {cam}.json 的机位;留空则只校验 requiredFiles */
+        private List<String> requiredCameras =
+                new ArrayList<>(List.of("cam_01", "cam_02", "cam_03"));
+        /**
+         * 上课发现产物缺失时,是否自动拉起一次标定
+         * 默认关:标定含 GUI 标注(annotate)这一步,需要人在算法机前点选控制点,
+         * 后台自动拉起只会在无人值守的机器上弹一个没人操作的窗口,徒增一个僵死进程。
+         * 正常流程是教师在算法机上标完,前端用 {@code /local/calibration/status} 查就绪
+         */
+        private boolean autoOnStart = false;
+        /**
+         * 标定未就绪时是否不启动 CV(录制照常)。
+         * true=宁可不跑 CV 也不出不可信角度;false=照常跑,产出按未标定处理
+         */
+        private boolean blockCvWhenMissing = true;
+        /** 追加到命令尾部的固定参数 */
+        private List<String> extraArgs = new ArrayList<>();
+        /** 注入子进程的环境变量;python 建议 PYTHONUNBUFFERED=1 */
+        private Map<String, String> env = new LinkedHashMap<>();
+        /** 单次标定墙钟上限。标定含抽帧+求解,给足时间 */
+        private Duration timeout = Duration.ofMinutes(20);
     }
 
     /** 场边遥测:Java 日志 / Python 输出 / 进程运行数据 / WS 与系统指标 */

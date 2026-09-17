@@ -2,6 +2,7 @@ package com.cnsportiot.cloud.service.impl;
 
 import com.cnsportiot.cloud.auth.RefreshTokenStore;
 import com.cnsportiot.cloud.config.RegisterProperties;
+import com.cnsportiot.cloud.config.StudentProperties;
 import com.cnsportiot.cloud.domain.entity.Account;
 import com.cnsportiot.cloud.domain.entity.Student;
 import com.cnsportiot.cloud.domain.enums.AccountStatus;
@@ -12,6 +13,7 @@ import com.cnsportiot.cloud.dto.response.AuthDtos.TokenResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.UserProfileResponse;
 import com.cnsportiot.cloud.dto.request.AuthRequests.RegisterRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.ActivateRequest;
+import com.cnsportiot.cloud.dto.request.AuthRequests.ChangePasswordRequest;
 import com.cnsportiot.cloud.dto.response.AuthDtos.RegisterResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.UserSummary;
 import com.cnsportiot.cloud.dto.request.AuthRequests.LoginRequest;
@@ -24,12 +26,14 @@ import io.jsonwebtoken.Claims;
 import jakarta.transaction.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 
+@Slf4j
 @Service
 public class AuthServiceImpl implements AuthService {
 
@@ -39,19 +43,22 @@ public class AuthServiceImpl implements AuthService {
     private final TokenProvider tokenProvider;
     private final RefreshTokenStore refreshTokenStore;
     private final RegisterProperties registerProperties;
+    private final StudentProperties studentProperties;
 
     public AuthServiceImpl(AccountRepository accountRepository,
                               StudentRepository studentRepository,
                               PasswordEncoder passwordEncoder,
                               TokenProvider tokenProvider,
                               RefreshTokenStore refreshTokenStore,
-                              RegisterProperties registerProperties) {
+                              RegisterProperties registerProperties,
+                              StudentProperties studentProperties) {
         this.accountRepository = accountRepository;
         this.studentRepository = studentRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenProvider = tokenProvider;
         this.refreshTokenStore = refreshTokenStore;
         this.registerProperties = registerProperties;
+        this.studentProperties = studentProperties;
     }
 
     @Override
@@ -121,7 +128,12 @@ public class AuthServiceImpl implements AuthService {
                 account.getStaffNo(),
                 student == null ? null : student.getId(),
                 student == null ? null : student.getStudentNo(),
-                account.getDisplayName());
+                account.getDisplayName(),
+                student == null ? null : student.getDominantHand(),
+                student == null ? null : student.getHeightCm(),
+                student == null ? null : student.getLegLengthCm(),
+                student == null ? null : student.getGradeBand());
+
     }
 
     @Override
@@ -182,6 +194,15 @@ public class AuthServiceImpl implements AuthService {
             throw BusinessException.stateConflict("账号已激活,无需重复操作");
         }
 
+        // 激活码写在本地配置(hoopshake.student.activation-code),全局一个,教师线下告知学生。
+        // 与 register 的 invite-code 同一套纪律:配置留空 = 不校验,配了才强校验。
+        if (studentProperties.activationCodeRequired()) {
+            String code = request.verifyCode();
+            if (code == null || !studentProperties.getActivationCode().equalsIgnoreCase(code.trim())) {
+                throw new BusinessException(ErrorCode.ACTIVATION_CODE_INVALID);
+            }
+        }
+
         if (request.phone() != null && !request.phone().isBlank()) {
             if (accountRepository.existsByPhone(request.phone())
                     && !account.getId().equals(accountRepository.findByPhone(request.phone()).map(Account::getId).orElse(null))) {
@@ -195,6 +216,24 @@ public class AuthServiceImpl implements AuthService {
         accountRepository.save(account);
 
         return issueTokens(account);
+    }
+
+    @Override
+    @Transactional
+    public void changePassword(ChangePasswordRequest request, AuthUser current) {
+        Account account = accountRepository.findById(current.accountId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+
+        if (!passwordEncoder.matches(request.oldPassword(), account.getPasswordHash())) {
+            throw new BusinessException(ErrorCode.OLD_PASSWORD_MISMATCH);
+        }
+        if (request.newPassword().equals(request.oldPassword())) {
+            throw new BusinessException(ErrorCode.NEW_PASSWORD_INVALID, "新密码不能与原密码相同");
+        }
+
+        account.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        accountRepository.save(account);
+        log.info("账号自助改密 accountId={}", account.getId());
     }
 
     private static String emptyToNull(String s) {

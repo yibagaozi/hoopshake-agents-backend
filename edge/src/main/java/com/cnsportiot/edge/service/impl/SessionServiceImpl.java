@@ -7,6 +7,7 @@ import com.cnsportiot.edge.camera.CameraRegistry;
 import com.cnsportiot.edge.capture.CaptureManager;
 import com.cnsportiot.edge.capture.RecordingManager;
 import com.cnsportiot.edge.cloudsync.SessionBatchOrchestrator;
+import com.cnsportiot.edge.calibration.CalibrationService;
 import com.cnsportiot.edge.cv.CvProcessManager;
 import com.cnsportiot.edge.config.EdgeProperties;
 import com.cnsportiot.edge.domain.CameraDescriptor;
@@ -52,6 +53,7 @@ public class SessionServiceImpl implements SessionService {
     private final ObjectMapper objectMapper;
     private final SessionBatchOrchestrator batchOrchestrator;
     private final CvProcessManager cvProcessManager;
+    private final CalibrationService calibrationService;
 
     private final AtomicReference<RecordingSession> current = new AtomicReference<>();
 
@@ -62,7 +64,8 @@ public class SessionServiceImpl implements SessionService {
                               LessonContextService lessonContextService,
                               ObjectMapper objectMapper,
                               SessionBatchOrchestrator batchOrchestrator,
-                              CvProcessManager cvProcessManager) {
+                              CvProcessManager cvProcessManager,
+                              CalibrationService calibrationService) {
         this.props = props;
         this.registry = registry;
         this.captureManager = captureManager;
@@ -71,6 +74,7 @@ public class SessionServiceImpl implements SessionService {
         this.objectMapper = objectMapper;
         this.batchOrchestrator = batchOrchestrator;
         this.cvProcessManager = cvProcessManager;
+        this.calibrationService = calibrationService;
     }
 
     @Override
@@ -118,9 +122,22 @@ public class SessionServiceImpl implements SessionService {
 
         writeMeta(session);
 
+        // 标定闸:没有本课标定产物就跑 CV,三角化不可用、角度不可信,提示只会是噪声。
+        // 故上课先查 data/calibration/live_{课程id}/;缺则按配置自动拉一次标定,
+        // 并据 block-cv-when-missing 决定这次先不启动 CV(录制照常,不影响留档)。
+        boolean calibrated = true;
+        if (lessonId != null) {
+            calibrated = calibrationService.ensureReady(lessonId.toString());
+        }
+
         // 按 session(=课程 id)拉起 CV 推理:算法据此加载该课注册的人脸库,identity 才能对上。
         // 无课程的纯录制则传 null → 用 cv.default-session(无注册库=无身份)。cv.enabled=false 时 no-op。
-        cvProcessManager.start(lessonId != null ? lessonId.toString() : null);
+        if (calibrated || !props.getCalibration().isBlockCvWhenMissing()) {
+            cvProcessManager.start(lessonId != null ? lessonId.toString() : null);
+        } else {
+            log.warn("标定未就绪,本次不启动 CV(录制照常) lessonId={};"
+                    + "标定完成后可经 POST /local/cv/start?session={} 手动启动", lessonId, lessonId);
+        }
 
         // TODO 预留:落 spool 一条 §10.1 事件(status=CREATED),联网后补传
         log.info("会话已开始 sessionId={} lessonId={} 录制 {} 路 dataDir={}",

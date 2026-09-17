@@ -31,8 +31,45 @@ public interface LlmGateway {
     }
 
 
+    /**
+     * 带用量的一次性补全。默认实现委托 {@link #complete} 并按
+     * {@link TokenEstimator} 估算用量(estimated=true),使未接入真实 usage 的实现也能被审计。
+     */
+    default Optional<CompletionResult> completeWithUsage(CompletionRequest request) {
+        return complete(request).map(content -> new CompletionResult(
+                content,
+                Usage.estimate(request.system(), request.user(), content, null)));
+    }
+
     /** 一次性补全的输入 */
     record CompletionRequest(String system, String user, Tier tier, Integer maxTokens) {}
+
+    /** 一次性补全的产出 + 用量 */
+    record CompletionResult(String content, Usage usage) {}
+
+    /**
+     * 一次调用的 token 用量。
+     *
+     * @param promptTokens     输入 token
+     * @param completionTokens 输出 token
+     * @param model            实际模型名(提供方回传优先),可空
+     * @param estimated        true=提供方未回传 usage,本值由估算得来
+     */
+    record Usage(int promptTokens, int completionTokens, String model, boolean estimated) {
+
+        public int totalTokens() {
+            return promptTokens + completionTokens;
+        }
+
+        /** 按本项目既有口径估算(CJK≈1,其余≈1/4 字符)。 */
+        public static Usage estimate(String system, String user, String output, String model) {
+            return new Usage(
+                    TokenEstimator.estimate(system) + TokenEstimator.estimate(user),
+                    TokenEstimator.estimate(output),
+                    model,
+                    true);
+        }
+    }
 
     /**
      * 一次对话轮次的输入。history 为最近若干轮上下文
@@ -66,6 +103,12 @@ public interface LlmGateway {
 
         /** 工具调用轨迹 */
         default void onToolEvent(String toolName, String status, String label) { }
+
+        /**
+         * 本轮用量。在 {@link #onComplete}/{@link #onError} <b>之前</b>回调一次(至多一次);
+         * 提供方未回传 usage 时给估算值({@code estimated=true})。默认忽略。
+         */
+        default void onUsage(Usage usage) { }
     }
 
     /** 中断句柄 */

@@ -13,6 +13,9 @@ import com.cnsportiot.cloud.harness.tool.AgentTool;
 import com.cnsportiot.cloud.harness.tool.ScopeKind;
 import com.cnsportiot.cloud.harness.tool.ToolContext;
 import com.cnsportiot.cloud.harness.tool.ToolRegistry;
+import com.cnsportiot.cloud.harness.usage.TokenUsageService;
+import com.cnsportiot.cloud.harness.usage.UsageSource;
+import com.cnsportiot.cloud.domain.enums.Role;
 import com.cnsportiot.cloud.ops.dto.OpsChatRequests.CreateOpsChatSessionRequest;
 import com.cnsportiot.cloud.ops.dto.OpsChatRequests.OpsChatAskRequest;
 import com.cnsportiot.cloud.ops.entity.OpsChatSession;
@@ -57,6 +60,7 @@ public class OpsChatServiceImpl implements OpsChatService {
     private final AgentProperties props;
     private final TokenBucketRateLimiter askRateLimiter;
     private final LlmStreamBulkhead bulkhead;
+    private final TokenUsageService tokenUsageService;
 
     private final ScheduledExecutorService heartbeat = Executors.newScheduledThreadPool(2, r -> {
         Thread t = new Thread(r, "ops-chat-sse-heartbeat");
@@ -118,6 +122,9 @@ public class OpsChatServiceImpl implements OpsChatService {
             throw new BusinessException(ErrorCode.RATE_LIMITED, "提问过于频繁,请稍后再试。");
         }
 
+        // 周用量配额:运维助手同样计入(ADMIN 默认不限额,可按需在配置里开)
+        tokenUsageService.ensureWithinWeeklyQuota(ownerAccountId, Role.ADMIN);
+
         ActiveRun previous = activeRuns.remove(sessionId);
         if (previous != null) {
             cancelAndFinalize(previous, "interrupted", null);
@@ -146,6 +153,8 @@ public class OpsChatServiceImpl implements OpsChatService {
             ToolContext toolContext = ToolContext.ops(ownerAccountId, sessionId, tier);
 
             run = new ActiveRun(sessionId, shell.getId(), emitter);
+            run.accountId = ownerAccountId;
+            run.tier = tier;
             run.release = bulkhead::release;
             final ActiveRun r = run;
             activeRuns.put(sessionId, run);
@@ -164,6 +173,9 @@ public class OpsChatServiceImpl implements OpsChatService {
                 @Override public void onToolEvent(String name, String status, String label) {
                     if (r.finished.get()) return;
                     send(emitter, "tool", new ChatToolEvent(name, status, label));
+                }
+                @Override public void onUsage(LlmGateway.Usage usage) {
+                    r.usage = usage;
                 }
                 @Override public void onComplete(String finishReason) {
                     finishRun(r, finishReason, null);
@@ -212,6 +224,10 @@ public class OpsChatServiceImpl implements OpsChatService {
         }
         activeRuns.remove(run.sessionId, run);
         run.releaseBulkhead();   // 归还全局并发许可(幂等)
+
+        // 用量记账:中断/出错也记
+        tokenUsageService.record(run.accountId, Role.ADMIN, UsageSource.OPS_CHAT,
+                run.usage, run.tier, run.sessionId, error != null ? "error" : reason);
 
         try {
             messageRepo.findById(run.assistantMessageId).ifPresent(m -> {
@@ -300,7 +316,10 @@ public class OpsChatServiceImpl implements OpsChatService {
     }
 
     private ChatMessageResponse toMessageDto(ChatMessage m) {
-        return new ChatMessageResponse(m.getId(), m.getRole(), m.getContent(), m.getTokenUsage(), m.getCreatedAt());
+        Map<String, Object> d = m.getDetail();
+        Object fr = d == null ? null : d.get("finishReason");
+        return new ChatMessageResponse(m.getId(), m.getRole(), m.getContent(), m.getTokenUsage(),
+                m.getCreatedAt(), fr == null ? null : String.valueOf(fr));
     }
 
     private void send(SseEmitter emitter, String event, Object payload) {
@@ -324,6 +343,9 @@ public class OpsChatServiceImpl implements OpsChatService {
         final AtomicBoolean finished = new AtomicBoolean(false);
         volatile LlmGateway.StreamHandle handle;
         volatile ScheduledFuture<?> heartbeat;
+        volatile UUID accountId;                 // 用量归属账号
+        volatile Tier tier;                      // 本轮档位
+        volatile LlmGateway.Usage usage;         // 网关回传的本轮用量
         volatile Runnable release;       // 释放舱壁许可;null 表示未占用
         private final AtomicBoolean released = new AtomicBoolean(false);
 

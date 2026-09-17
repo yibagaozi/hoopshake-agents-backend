@@ -43,7 +43,8 @@ class HelpRequestServiceImplTest {
     void setup() {
         helpRepo = mock(HelpRequestRepository.class);
         sessionRepo = mock(ChatSessionRepository.class);
-        svc = new HelpRequestServiceImpl(helpRepo, sessionRepo);
+        svc = new HelpRequestServiceImpl(helpRepo, sessionRepo,
+                mock(com.cnsportiot.cloud.repository.AccountRepository.class));
         lenient().when(helpRepo.save(any())).thenAnswer(i -> i.getArgument(0));
     }
 

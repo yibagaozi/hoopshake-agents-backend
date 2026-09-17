@@ -2,7 +2,9 @@ package com.cnsportiot.cloud.dto.response;
 
 import com.cnsportiot.cloud.domain.enums.AccountStatus;
 import com.cnsportiot.cloud.domain.enums.Role;
+import com.cnsportiot.contracts.enums.DominantHand;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 /** 认证相关响应 DTO */
@@ -39,7 +41,11 @@ public final class AuthDtos {
             String staffNo,      // 教师/管理员
             UUID studentId,      // 仅 STUDENT
             String studentNo,
-            String displayName) {}
+            String displayName,
+            DominantHand dominantHand,
+            BigDecimal heightCm,
+            BigDecimal legLengthCm,
+            String gradeBand) {}
 
     /** 2.5 教师注册 */
     public record RegisterResponse(

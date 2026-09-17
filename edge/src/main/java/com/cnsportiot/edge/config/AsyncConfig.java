@@ -55,6 +55,22 @@ public class AsyncConfig {
         return executor;
     }
 
+    /**
+     * 球场标定:单线程(同一时刻只允许一个标定任务),含抽帧+求解,墙钟可达十几分钟,
+     * 与采集/出云/批处理线程池隔离。
+     */
+    @Bean
+    public TaskExecutor calibrationExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(4);
+        executor.setThreadNamePrefix("calibration-");
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
+
     /** WS 扇出 */
     @Bean
     public TaskExecutor wsBroadcastExecutor() {

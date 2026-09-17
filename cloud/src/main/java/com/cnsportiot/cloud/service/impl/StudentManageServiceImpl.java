@@ -9,6 +9,7 @@ import com.cnsportiot.cloud.domain.enums.AccountStatus;
 import com.cnsportiot.cloud.dto.request.StudentManageRequests.RegisterStudentRequest;
 import com.cnsportiot.cloud.dto.request.StudentManageRequests.UpdateStudentRequest;
 import com.cnsportiot.cloud.dto.response.StudentManageDtos.RegisterStudentResponse;
+import com.cnsportiot.cloud.dto.response.StudentManageDtos.ResetPasswordResponse;
 import com.cnsportiot.cloud.dto.response.StudentManageDtos.StudentBriefResponse;
 import com.cnsportiot.cloud.dto.response.StudentManageDtos.StudentDetailResponse;
 import com.cnsportiot.cloud.dto.response.StudentManageDtos.StudentStatsResponse;
@@ -61,9 +62,12 @@ public class StudentManageServiceImpl implements StudentManageService {
 
         try {
             String username = request.username() == null ? request.studentNo() : request.username();
-            String initialPassword = request.password() == null
-                    ? studentProperties.initialPasswordFor(request.studentNo())
-                    : request.password();
+            // 初始密码一律由本地配置导入(hoopshake.student.initial-password;留空则为学号本身)。
+            // 暂不支持教师手动设置:request.password() 即便传了也忽略,避免"教师以为设了、学生却登不上"。
+            if (request.password() != null && !request.password().isBlank()) {
+                log.warn("建档忽略了请求里的自定义密码(暂不支持教师手动设置) studentNo={}", request.studentNo());
+            }
+            String initialPassword = studentProperties.initialPasswordFor(request.studentNo());
             String encodedPassword = passwordEncoder.encode(initialPassword);
 
             Account account = Account.builder()
@@ -97,8 +101,7 @@ public class StudentManageServiceImpl implements StudentManageService {
                     request.studentNo(), username, student.getId(), operatorAccountId);
 
             return new RegisterStudentResponse(
-                    student.getId(), savedAccount.getId(), request.studentNo(), username,
-                    request.password() == null);
+                    student.getId(), savedAccount.getId(), request.studentNo(), username, true);
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(ErrorCode.DUPLICATE_IDENTIFIER,
                     "学号、用户名、邮箱或手机号已存在", null);
@@ -122,6 +125,10 @@ public class StudentManageServiceImpl implements StudentManageService {
     public StudentDetailResponse getStudentDetail(UUID studentId) {
         StudentRepository.StudentDetail detail = studentRepository.findActiveDetailByStudentId(studentId)
                 .orElseThrow(() -> BusinessException.notFound("学生不存在或未激活"));
+        // 账号态与验证码不在投影里,单独取一次(详情页低频,不走 N+1 的坑)
+        Account account = studentRepository.findById(studentId)
+                .flatMap(st -> accountRepository.findById(st.getAccountId()))
+                .orElse(null);
         return new StudentDetailResponse(
                 detail.getStudentId(),
                 detail.getStudentNo(),
@@ -135,8 +142,29 @@ public class StudentManageServiceImpl implements StudentManageService {
                         detail.getGalleryVersion() == null ? 0 : detail.getGalleryVersion().intValue(),
                         com.cnsportiot.contracts.enums.GalleryStatus.valueOf(detail.getGalleryStatus()),
                         detail.getGallerySampleCount(),
-                        detail.getGalleryEnrolledAt()));
+                        detail.getGalleryEnrolledAt()),
+                account == null ? null : account.getStatus());
     }
+
+    /**
+     * 教师重置学生密码:账号保持 ACTIVE(不退回待激活),重置回**本地配置**的初始密码
+     *。不生成也不回明文——口径与建档一致,教师照配置约定告知学生。
+     */
+    @Override
+    @Transactional
+    public ResetPasswordResponse resetStudentPassword(UUID studentId) {
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> BusinessException.notFound("学生不存在"));
+        Account account = accountRepository.findById(student.getAccountId())
+                .orElseThrow(() -> BusinessException.notFound("学生账号不存在"));
+        account.setPasswordHash(passwordEncoder.encode(
+                studentProperties.initialPasswordFor(student.getStudentNo())));
+        accountRepository.save(account);
+        log.info("教师重置学生密码(重置回配置初始密码) studentId={} accountId={}", studentId, account.getId());
+        return new ResetPasswordResponse(studentId, true);
+    }
+
+
 
     @Override
     @Transactional

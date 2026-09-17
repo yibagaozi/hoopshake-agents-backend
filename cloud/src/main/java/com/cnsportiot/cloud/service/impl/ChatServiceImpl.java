@@ -20,6 +20,9 @@ import com.cnsportiot.cloud.harness.tool.AgentTool;
 import com.cnsportiot.cloud.harness.tool.ScopeKind;
 import com.cnsportiot.cloud.harness.tool.ToolContext;
 import com.cnsportiot.cloud.harness.tool.ToolRegistry;
+import com.cnsportiot.cloud.harness.usage.TokenUsageService;
+import com.cnsportiot.cloud.harness.usage.UsageSource;
+import com.cnsportiot.cloud.domain.enums.Role;
 import com.cnsportiot.cloud.repository.ChatMessageRepository;
 import com.cnsportiot.cloud.repository.ChatSessionRepository;
 import com.cnsportiot.cloud.service.ChatService;
@@ -64,6 +67,7 @@ public class ChatServiceImpl implements ChatService {
     private final AgentProperties props;
     private final TokenBucketRateLimiter askRateLimiter;
     private final LlmStreamBulkhead bulkhead;
+    private final TokenUsageService tokenUsageService;
 
     private final ScheduledExecutorService heartbeat = Executors.newScheduledThreadPool(2, r -> {
         Thread t = new Thread(r, "chat-sse-heartbeat");
@@ -129,6 +133,9 @@ public class ChatServiceImpl implements ChatService {
             throw new BusinessException(ErrorCode.RATE_LIMITED, "提问过于频繁,请稍后再试。");
         }
 
+        // 周用量配额:与限流同属"入口闸",同样拒绝在建任何 DB 记录之前(超限抛 42911)
+        tokenUsageService.ensureWithinWeeklyQuota(accountId, Role.STUDENT);
+
         // 已有进行中的生成 → 先收尾旧的(中断)
         ActiveRun previous = activeRuns.remove(sessionId);
         if (previous != null) {
@@ -186,6 +193,8 @@ public class ChatServiceImpl implements ChatService {
             run.ragHits = ragHits;
             run.ragDegraded = ragDegraded;
             run.userQuestion = request.content();
+            run.accountId = accountId;
+            run.tier = tier;
             run.release = bulkhead::release;   // 舱壁许可随本次 run 收尾时释放(finishRun 内幂等)
             final ActiveRun r = run;
             activeRuns.put(sessionId, run);
@@ -213,6 +222,9 @@ public class ChatServiceImpl implements ChatService {
                         r.toolTrace.add(Map.of("name", name, "status", status));
                     }
                     send(emitter, "tool", new ChatToolEvent(name, status, label));
+                }
+                @Override public void onUsage(LlmGateway.Usage usage) {
+                    r.usage = usage;   // 网关在 onComplete/onError 之前回调,finishRun 时已就位
                 }
                 @Override public void onComplete(String finishReason) {
                     finishRun(r, finishReason, null);
@@ -273,6 +285,10 @@ public class ChatServiceImpl implements ChatService {
         }
         activeRuns.remove(run.sessionId, run);
         run.releaseBulkhead();   // 归还全局并发许可(幂等,只放一次)
+
+        // 用量记账:中断/出错也要记——已经烧掉的 token 不因失败而免单
+        tokenUsageService.record(run.accountId, Role.STUDENT, UsageSource.STUDENT_CHAT,
+                run.usage, run.tier, run.sessionId, error != null ? "error" : reason);
 
         // 空回答兜底:正常结束但模型没产出任何正文,给一句兜底话术,前端不空白
         if (error == null && run.buffer.length() == 0 && !"interrupted".equals(reason)) {
@@ -401,7 +417,8 @@ public class ChatServiceImpl implements ChatService {
         }
         detail.put("rag", rag);
         detail.put("tools", new ArrayList<>(run.toolTrace));
-        detail.put("finishReason", reason);
+        // 出错时 reason 形参仍是 "stop",这里按真实终态落 error,前端历史才分得清
+        detail.put("finishReason", error != null ? "error" : reason);
         if (error != null) {
             detail.put("error", true);
         }
@@ -492,7 +509,15 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private ChatMessageResponse toMessageDto(ChatMessage m) {
-        return new ChatMessageResponse(m.getId(), m.getRole(), m.getContent(), m.getTokenUsage(), m.getCreatedAt());
+        return new ChatMessageResponse(m.getId(), m.getRole(), m.getContent(), m.getTokenUsage(),
+                m.getCreatedAt(), finishReasonOf(m));
+    }
+
+    /** 从落库的 detail 里取 finishReason;老数据没有该键时返回 null(前端按 stop 处理)。 */
+    private static String finishReasonOf(ChatMessage m) {
+        Map<String, Object> d = m.getDetail();
+        Object v = d == null ? null : d.get("finishReason");
+        return v == null ? null : String.valueOf(v);
     }
 
     private void send(SseEmitter emitter, String event, Object payload) {
@@ -523,6 +548,9 @@ public class ChatServiceImpl implements ChatService {
         volatile String userQuestion;
         volatile boolean ragDegraded;
         volatile boolean emptyFallback;
+        volatile UUID accountId;                 // 用量归属账号
+        volatile Tier tier;                      // 本轮档位,随用量留档
+        volatile LlmGateway.Usage usage;         // 网关回传的本轮用量;null = 未回调(如同步失败)
         volatile Runnable release;       // 释放舱壁许可;null 表示未占用
         private final AtomicBoolean released = new AtomicBoolean(false);
 

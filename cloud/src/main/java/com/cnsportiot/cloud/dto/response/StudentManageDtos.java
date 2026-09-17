@@ -1,5 +1,6 @@
 package com.cnsportiot.cloud.dto.response;
 
+import com.cnsportiot.cloud.domain.enums.AccountStatus;
 import com.cnsportiot.contracts.enums.GalleryStatus;
 import com.cnsportiot.contracts.enums.DominantHand;
 
@@ -20,6 +21,16 @@ public final class StudentManageDtos {
             String username,
             boolean initialPassword) {}
 
+    /**
+     * 教师重置学生密码的结果。账号保持 ACTIVE(不退回待激活),密码重置回**本地配置**的初始密码
+     * (hoopshake.student.initial-password;留空则为学号本身),故不回明文——教师照配置约定告知即可。
+     * 不置"强制改密"标记(本轮不加 account 列):学生要改密自行走 POST /api/auth/password。
+     */
+    public record ResetPasswordResponse(
+            UUID studentId,
+            boolean resetToInitialPassword) {}
+
+
     /** 6.2 学生检索 */
     public record StudentBriefResponse(
             UUID studentId,
@@ -29,7 +40,9 @@ public final class StudentManageDtos {
             DominantHand dominantHand,
             boolean galleryReady) {}
 
-    /** 6.3 学生详情 */
+    /** 6.3 学生详情
+     * @param accountStatus 账号状态,前端据此决定是否展示激活引导
+     */
     public record StudentDetailResponse(
             UUID studentId,
             String studentNo,
@@ -38,7 +51,8 @@ public final class StudentManageDtos {
             BigDecimal heightCm,
             BigDecimal legLengthCm,
             String gradeBand,
-            ActiveGallerySummary activeGallery) {}
+            ActiveGallerySummary activeGallery,
+            AccountStatus accountStatus) {}
 
     public record ActiveGallerySummary(
             UUID galleryId,

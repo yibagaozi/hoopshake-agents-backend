@@ -43,7 +43,10 @@ public class GlobalExceptionHandler {
         } else {
             log.debug("业务异常({}): {}", ec.error(), ex.getMessage());
         }
-        return build(ec, ex.getMessage(), ex.fieldErrors());
+        // 5xx 一律只回通用文案:自定义 message 常含内部细节(SQL、主机名、堆栈片段),
+        // 不能直接弹到用户手机上;细节留在服务端日志里
+        String message = ec.httpStatus().is5xxServerError() ? ec.defaultMessage() : ex.getMessage();
+        return build(ec, message, ex.fieldErrors());
     }
 
     /** @Valid 请求体 / 表单校验失败 PARAM_INVALID + fieldErrors */

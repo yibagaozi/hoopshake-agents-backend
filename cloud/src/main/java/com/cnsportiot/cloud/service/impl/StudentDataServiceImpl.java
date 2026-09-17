@@ -210,7 +210,32 @@ public class StudentDataServiceImpl implements StudentDataService {
                 worst = a.getCheckpointId();
             }
         }
-        return worst == null ? null : new FocusCheckpoint(worst, worst, round2(worstPass), 0.0);
+        if (worst == null) {
+            return null;
+        }
+        // 变化量:与上一次训练的同一检查点比。没有上一次 → null(不可比),
+        // 前端据此显示"暂无对比",而不是凭空给出 "+0% 继续保持"
+        Double improvement = null;
+        if (recent.size() > 1) {
+            Double priorPass = passRateOf(studentId, recent.get(1).getId(), worst);
+            if (priorPass != null) {
+                improvement = round2((worstPass - priorPass) * 100.0);
+            }
+        }
+        // label 给中文;词表里没有该 id 就给 null,绝不回填成 id
+        return new FocusCheckpoint(worst,
+                com.cnsportiot.cloud.meta.Vocabulary.checkpointLabel(worst),
+                round2(worstPass), improvement);
+    }
+
+    /** 某次训练里某检查点的达标率;该次没有这个检查点的数据则返回 null(不可比)。 */
+    private Double passRateOf(UUID studentId, UUID sessionId, String checkpointId) {
+        for (InstantFeedbackRepository.CheckpointAgg a : feedbackRepo.checkpointAgg(studentId, sessionId)) {
+            if (checkpointId.equals(a.getCheckpointId())) {
+                return a.getTotal() == 0 ? 1.0 : 1.0 - (double) a.getMajor() / a.getTotal();
+            }
+        }
+        return null;
     }
 
     private String lessonTitle(UUID lessonId, Map<UUID, String> cache) {

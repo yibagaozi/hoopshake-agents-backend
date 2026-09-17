@@ -5,6 +5,7 @@ import com.cnsportiot.cloud.harness.llm.LlmGateway;
 import com.cnsportiot.cloud.harness.ratelimit.LlmStreamBulkhead;
 import com.cnsportiot.cloud.harness.ratelimit.TokenBucketRateLimiter;
 import com.cnsportiot.cloud.harness.tool.ToolRegistry;
+import com.cnsportiot.cloud.harness.usage.TokenUsageService;
 import com.cnsportiot.cloud.ops.dto.OpsChatRequests.CreateOpsChatSessionRequest;
 import com.cnsportiot.cloud.ops.dto.OpsChatRequests.OpsChatAskRequest;
 import com.cnsportiot.cloud.ops.entity.OpsChatSession;
@@ -53,7 +54,8 @@ class OpsChatServiceImplTest {
         bulkhead = mock(LlmStreamBulkhead.class);
         props = new AgentProperties();
         service = new OpsChatServiceImpl(sessionRepo, messageRepo, llmGateway,
-                new ToolRegistry(new ArrayList<>()), props, rateLimiter, bulkhead);
+                new ToolRegistry(new ArrayList<>()), props, rateLimiter, bulkhead,
+                mock(TokenUsageService.class));
     }
 
     private OpsChatSession owned() {

@@ -6,6 +6,7 @@ import com.cnsportiot.cloud.domain.enums.Role;
 import com.cnsportiot.cloud.dto.request.StudentManageRequests.RegisterStudentRequest;
 import com.cnsportiot.cloud.dto.request.StudentManageRequests.UpdateStudentRequest;
 import com.cnsportiot.cloud.dto.response.StudentManageDtos.RegisterStudentResponse;
+import com.cnsportiot.cloud.dto.response.StudentManageDtos.ResetPasswordResponse;
 import com.cnsportiot.cloud.dto.response.StudentManageDtos.StudentBriefResponse;
 import com.cnsportiot.cloud.dto.response.StudentManageDtos.StudentDetailResponse;
 import com.cnsportiot.cloud.dto.response.StudentManageDtos.StudentStatsResponse;
@@ -74,4 +75,11 @@ public class StudentManageController {
             @CurrentUser AuthUser me) {
         return ApiResponse.ok(studentManageService.registerStudent(request, me.accountId().toString()));
     }
+
+    /** 重置学生密码 */
+    @PostMapping("/{studentId}/password/reset")
+    public ApiResponse<ResetPasswordResponse> resetPassword(@PathVariable UUID studentId) {
+        return ApiResponse.ok(studentManageService.resetStudentPassword(studentId));
+    }
+
 }

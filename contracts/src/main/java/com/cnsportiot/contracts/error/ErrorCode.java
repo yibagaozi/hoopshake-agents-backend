@@ -14,6 +14,9 @@ public enum ErrorCode implements ErrorCodeSpec{
     TOKEN_INVALID(40102, HttpStatus.UNAUTHORIZED, "登录凭证无效"),
     REFRESH_TOKEN_INVALID(40103, HttpStatus.UNAUTHORIZED, "刷新令牌已失效"),
     BAD_CREDENTIALS(40110, HttpStatus.UNAUTHORIZED, "登录标识或密码错误"),
+    OLD_PASSWORD_MISMATCH(40111, HttpStatus.UNAUTHORIZED, "原密码不正确"),
+    ACTIVATION_CODE_INVALID(40112, HttpStatus.UNAUTHORIZED, "验证码不正确,请与老师核对"),
+    NEW_PASSWORD_INVALID(40113, HttpStatus.BAD_REQUEST, "新密码不符合要求"),
     SERVICE_TOKEN_INVALID(40120, HttpStatus.UNAUTHORIZED, "服务间凭证无效"),
 
     FORBIDDEN(40300, HttpStatus.FORBIDDEN, "无权访问"),
@@ -29,6 +32,7 @@ public enum ErrorCode implements ErrorCodeSpec{
 
     RATE_LIMITED(42900, HttpStatus.TOO_MANY_REQUESTS, "请求过于频繁"),
     TOKEN_BUDGET_EXCEEDED(42910, HttpStatus.TOO_MANY_REQUESTS, "会话 Token 预算已用尽"),
+    TOKEN_QUOTA_EXCEEDED(42911, HttpStatus.TOO_MANY_REQUESTS, "本周 AI 用量已达上限,请下周再试或联系管理员"),
 
     INTERNAL_ERROR(50000, HttpStatus.INTERNAL_SERVER_ERROR, "服务内部错误"),
     NOT_IMPLEMENTED(50100, HttpStatus.NOT_IMPLEMENTED, "功能预留,暂未开放"),

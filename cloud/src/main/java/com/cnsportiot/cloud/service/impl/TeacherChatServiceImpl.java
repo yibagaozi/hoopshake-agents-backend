@@ -16,6 +16,9 @@ import com.cnsportiot.cloud.harness.tool.AgentTool;
 import com.cnsportiot.cloud.harness.tool.ScopeKind;
 import com.cnsportiot.cloud.harness.tool.ToolContext;
 import com.cnsportiot.cloud.harness.tool.ToolRegistry;
+import com.cnsportiot.cloud.harness.usage.TokenUsageService;
+import com.cnsportiot.cloud.harness.usage.UsageSource;
+import com.cnsportiot.cloud.domain.enums.Role;
 import com.cnsportiot.cloud.repository.ChatMessageRepository;
 import com.cnsportiot.cloud.repository.TeacherChatSessionRepository;
 import com.cnsportiot.cloud.service.TeacherChatService;
@@ -60,6 +63,7 @@ public class TeacherChatServiceImpl implements TeacherChatService {
     private final AgentProperties props;
     private final TokenBucketRateLimiter askRateLimiter;
     private final LlmStreamBulkhead bulkhead;
+    private final TokenUsageService tokenUsageService;
 
     private final ScheduledExecutorService heartbeat = Executors.newScheduledThreadPool(2, r -> {
         Thread t = new Thread(r, "teacher-chat-sse-heartbeat");
@@ -121,6 +125,9 @@ public class TeacherChatServiceImpl implements TeacherChatService {
             throw new BusinessException(ErrorCode.RATE_LIMITED, "提问过于频繁,请稍后再试。");
         }
 
+        // 周用量配额:同属入口闸,超限抛 42911
+        tokenUsageService.ensureWithinWeeklyQuota(teacherAccountId, Role.TEACHER);
+
         ActiveRun previous = activeRuns.remove(sessionId);
         if (previous != null) {
             cancelAndFinalize(previous, "interrupted", null);
@@ -150,6 +157,8 @@ public class TeacherChatServiceImpl implements TeacherChatService {
             ToolContext toolContext = ToolContext.teacher(teacherAccountId, sessionId, tier);
 
             run = new ActiveRun(sessionId, shell.getId(), emitter);
+            run.accountId = teacherAccountId;
+            run.tier = tier;
             run.release = bulkhead::release;
             final ActiveRun r = run;
             activeRuns.put(sessionId, run);
@@ -171,6 +180,9 @@ public class TeacherChatServiceImpl implements TeacherChatService {
                         r.toolTrace.add(Map.of("name", name, "status", status));
                     }
                     send(emitter, "tool", new ChatToolEvent(name, status, label));
+                }
+                @Override public void onUsage(LlmGateway.Usage usage) {
+                    r.usage = usage;
                 }
                 @Override public void onComplete(String finishReason) {
                     finishRun(r, finishReason, null);
@@ -219,6 +231,10 @@ public class TeacherChatServiceImpl implements TeacherChatService {
         }
         activeRuns.remove(run.sessionId, run);
         run.releaseBulkhead();   // 归还全局并发许可(幂等)
+
+        // 用量记账:中断/出错也记,已烧掉的 token 不免单
+        tokenUsageService.record(run.accountId, Role.TEACHER, UsageSource.TEACHER_CHAT,
+                run.usage, run.tier, run.sessionId, error != null ? "error" : reason);
 
         try {
             messageRepo.findById(run.assistantMessageId).ifPresent(m -> {
@@ -339,7 +355,15 @@ public class TeacherChatServiceImpl implements TeacherChatService {
     }
 
     private ChatMessageResponse toMessageDto(ChatMessage m) {
-        return new ChatMessageResponse(m.getId(), m.getRole(), m.getContent(), m.getTokenUsage(), m.getCreatedAt());
+        return new ChatMessageResponse(m.getId(), m.getRole(), m.getContent(), m.getTokenUsage(),
+                m.getCreatedAt(), finishReasonOf(m));
+    }
+
+    /** 从落库的 detail 里取 finishReason;老数据没有该键时返回 null(前端按 stop 处理)。 */
+    private static String finishReasonOf(ChatMessage m) {
+        Map<String, Object> d = m.getDetail();
+        Object v = d == null ? null : d.get("finishReason");
+        return v == null ? null : String.valueOf(v);
     }
 
     private void send(SseEmitter emitter, String event, Object payload) {
@@ -364,6 +388,9 @@ public class TeacherChatServiceImpl implements TeacherChatService {
         final List<Map<String, Object>> toolTrace = new CopyOnWriteArrayList<>();
         volatile LlmGateway.StreamHandle handle;
         volatile ScheduledFuture<?> heartbeat;
+        volatile UUID accountId;                 // 用量归属账号
+        volatile Tier tier;                      // 本轮档位
+        volatile LlmGateway.Usage usage;         // 网关回传的本轮用量
         volatile Runnable release;       // 释放舱壁许可;null 表示未占用
         private final AtomicBoolean released = new AtomicBoolean(false);
 

@@ -56,6 +56,19 @@ public final class Vocabulary {
             "triple_threat", List.of("load", "action", "recover"),
             "pass", List.of("load", "action", "recover"));
 
+    /**
+     * 检查点 id → 中文名。前端拿到 focusCheckpoint 等处的 label 必须是中文;
+     * **查不到时返回 null,绝不回填 id**——否则前端分不清"这是名字"还是"这是 id"。
+     */
+    public static final Map<String, String> CHECKPOINT_LABELS =
+            CHECKPOINTS.stream().collect(Collectors.toUnmodifiableMap(
+                    CheckpointVocab::id, CheckpointVocab::label));
+
+    /** 检查点中文名;未知 id 返回 null(不回填 id) */
+    public static String checkpointLabel(String checkpointId) {
+        return checkpointId == null ? null : CHECKPOINT_LABELS.get(checkpointId);
+    }
+
     /** 相位中文名(与算法 clip_labels_zh 一致) */
     public static final Map<String, String> PHASE_LABELS = Map.ofEntries(
             Map.entry("load", "蓄力"),
