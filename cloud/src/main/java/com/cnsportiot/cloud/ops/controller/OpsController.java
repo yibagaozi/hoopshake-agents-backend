@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 public class OpsController {
 
     private final OpsService opsService;
+    private final com.cnsportiot.cloud.ops.config.OpsProperties opsProperties;
 
     /** 4.1 首屏一次拉全。*/
     @GetMapping("/overview")
@@ -62,5 +63,22 @@ public class OpsController {
             throw BusinessException.notFound("设备不存在: " + deviceId);
         }
         return ApiResponse.ok(d);
+    }
+
+    /**
+     * 4.6 Grafana 嵌入地址。后端**不出图**,只暴露 {@code /actuator/prometheus} 作数据源;
+     * 面板建在自己的 Grafana 上,地址配在 {@code hoopshake.ops.grafana.*},本接口把它给前端 iframe。
+     * 未配置时 {@code configured=false} 前端据此隐藏监控入口,不要渲染一个空白 iframe
+     */
+    @GetMapping("/grafana")
+    public ApiResponse<GrafanaEmbedResponse> grafana() {
+        var g = opsProperties.getGrafana();
+        boolean configured = g.getEmbedUrl() != null && !g.getEmbedUrl().isBlank();
+        return ApiResponse.ok(new GrafanaEmbedResponse(
+                configured,
+                configured ? g.getEmbedUrl() : null,
+                g.getDashboardUrl() == null || g.getDashboardUrl().isBlank() ? null : g.getDashboardUrl(),
+                g.getEmbedHeight(),
+                "/actuator/prometheus"));
     }
 }

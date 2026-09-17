@@ -49,7 +49,12 @@ public class SecurityConfig {
                     "/api/auth/register",
                     "/api/auth/activate").permitAll()
                 .requestMatchers("/api/parent/**").permitAll()   // 由 Controller 统一返回 501
-                .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info", "/actuator/prometheus", "/error").permitAll()
+                // 探针与错误页保持公开(容器 liveness/readiness 要用)
+                .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info", "/error").permitAll()
+                // 指标含运行细节(业务量、连接池、各路径耗时),不再公开:
+                // Prometheus 带 X-Service-Token 抓取(ROLE_SERVICE),管理员用 JWT 查看(ROLE_ADMIN)
+                .requestMatchers("/actuator/prometheus", "/actuator/metrics/**")
+                    .hasAnyRole("ADMIN", "SERVICE")
                 .requestMatchers("/api/ingest/**").permitAll()   // 由 ServiceTokenFilter 校验
                 .anyRequest().authenticated())
             .exceptionHandling(ex -> ex
