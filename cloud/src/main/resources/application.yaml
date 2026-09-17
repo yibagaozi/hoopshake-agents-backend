@@ -81,6 +81,13 @@ hoopshake:
     initial-password: ${INITIAL_PASSWORD:}
     # 激活验证码:全局一个,教师线下告知学生。留空 = 不校验(激活时 verifyCode 可不传)
     activation-code: ${STUDENT_ACTIVATION_CODE:}
+  ops:
+    # 监控看板:后端只暴露数据源 /actuator/prometheus 供 Grafana 采集,不自己出图
+    # 留空 = 未配置,接口回 configured=false,前端隐藏监控入口
+    grafana:
+      embed-url: ${GRAFANA_EMBED_URL:}
+      dashboard-url: ${GRAFANA_DASHBOARD_URL:}
+      embed-height: ${GRAFANA_EMBED_HEIGHT:600}
   agent:
     enabled: ${HOOPSHAKE_AGENT_ENABLED:true}    # 关闭时不装配 LLM/向量,对话端点降级 50310
     max-retries: ${GLM_MAX_RETRIES:2}            # 瞬时错误(超时/5xx/429)同模型重试次数(降级链第①层)

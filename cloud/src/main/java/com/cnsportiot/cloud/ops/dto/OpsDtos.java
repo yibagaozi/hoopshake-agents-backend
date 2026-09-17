@@ -104,4 +104,19 @@ public final class OpsDtos {
 
     /** 设备列表包装(附汇总) */
     public record EdgeDeviceListResponse(EdgeSummary summary, List<EdgeDeviceResponse> devices) {}
+
+    /**
+     * Grafana 嵌入信息。后端不出图,只把配置好的嵌入地址给前端 iframe。
+     *
+     * @param configured   false = 尚未配置嵌入地址,前端应隐藏监控入口,不要渲染空白 iframe
+     * @param embedUrl     面板嵌入地址;未配置为 null
+     * @param dashboardUrl 完整看板外链;未配置为 null
+     * @param metricsPath  指标抓取路径,便于运维核对 Prometheus 的 scrape 配置
+     */
+    public record GrafanaEmbedResponse(
+            boolean configured,
+            String embedUrl,
+            String dashboardUrl,
+            int embedHeight,
+            String metricsPath) {}
 }
