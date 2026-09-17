@@ -8,6 +8,7 @@ import com.cnsportiot.cloud.dto.response.AuthDtos.UserProfileResponse;
 import com.cnsportiot.cloud.dto.response.AuthDtos.RegisterResponse;
 import com.cnsportiot.cloud.dto.request.AuthRequests.LoginRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.ActivateRequest;
+import com.cnsportiot.cloud.dto.request.AuthRequests.ChangePasswordRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.LogoutRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.RefreshTokenRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.RegisterRequest;
@@ -61,5 +62,13 @@ public class AuthController {
     public ApiResponse<TokenResponse> activate(@Valid @RequestBody ActivateRequest request,
                                                @CurrentUser AuthUser current) {
         return ApiResponse.ok(authService.activate(request, current));
+    }
+
+    @PostMapping("/password")
+    @RequireAuth
+    public ApiResponse<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request,
+                                            @CurrentUser AuthUser current) {
+        authService.changePassword(request, current);
+        return ApiResponse.ok(null);
     }
 }
