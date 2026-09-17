@@ -77,7 +77,10 @@ hoopshake:
       allow-credentials: true
       max-age-seconds: 3600
   student:
+    # 初始密码:留空 = 以学号本身为初始密码。建档与教师重置密码都用这个,不支持教师手动设置
     initial-password: ${INITIAL_PASSWORD:}
+    # 激活验证码:全局一个,教师线下告知学生。留空 = 不校验(激活时 verifyCode 可不传)
+    activation-code: ${STUDENT_ACTIVATION_CODE:}
   agent:
     enabled: ${HOOPSHAKE_AGENT_ENABLED:true}    # 关闭时不装配 LLM/向量,对话端点降级 50310
     max-retries: ${GLM_MAX_RETRIES:2}            # 瞬时错误(超时/5xx/429)同模型重试次数(降级链第①层)
@@ -107,8 +110,15 @@ hoopshake:
       expose-in-chat: true                                # 对话是否向模型开放工具(function-calling)
       debug-enabled: ${HOOPSHAKE_AGENT_TOOLS_DEBUG:false}  # 调试直调端点(不经 LLM),测试期打开
       max-result-items: 50
-      router:
-        llm-classify: true                                  # 规则拿不准时用 FAST 档做一次意图分类;关掉走 GENERAL 兜底
-      budget:
-        context-tokens: ${GLM_CONTEXT_TOKENS:128000}        # 上下文预算(token 估算口径),按账号实际上下文窗口调
-        reserve-output-tokens: 2048
+    router:
+      llm-classify: true                                    # 规则拿不准时用 FAST 档做一次意图分类;关掉走 GENERAL 兜底
+    budget:
+      context-tokens: ${GLM_CONTEXT_TOKENS:128000}          # 上下文预算(token 估算口径),按账号实际上下文窗口调
+      reserve-output-tokens: 2048
+    quota:                                                  # 单账号周用量上限(自然周,周一 00:00 清零)
+      enabled: ${AI_QUOTA_ENABLED:true}                     # 关掉只停止拦截,用量仍然记账(审计不受影响)
+      zone: ${AI_QUOTA_ZONE:Asia/Shanghai}
+      weekly-tokens-student: ${AI_QUOTA_WEEKLY_STUDENT:300000}
+      weekly-tokens-teacher: ${AI_QUOTA_WEEKLY_TEACHER:1000000}
+      weekly-tokens-admin: ${AI_QUOTA_WEEKLY_ADMIN:0}       # 0 = 不限
+      warn-ratio: ${AI_QUOTA_WARN_RATIO:0.8}                # 用到该比例前端出黄条提示
