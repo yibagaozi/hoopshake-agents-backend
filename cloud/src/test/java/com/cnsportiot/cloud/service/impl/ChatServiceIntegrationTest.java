@@ -9,6 +9,7 @@ import com.cnsportiot.cloud.dto.request.ChatRequests.ChatAskRequest;
 import com.cnsportiot.cloud.harness.llm.LlmGateway;
 import com.cnsportiot.cloud.harness.ratelimit.LlmStreamBulkhead;
 import com.cnsportiot.cloud.harness.ratelimit.TokenBucketRateLimiter;
+import com.cnsportiot.cloud.harness.usage.TokenUsageService;
 import com.cnsportiot.cloud.harness.rag.Chunk;
 import com.cnsportiot.cloud.harness.rag.RagStore;
 import com.cnsportiot.cloud.harness.rag.Snippet;
@@ -80,7 +81,8 @@ class ChatServiceIntegrationTest {
         ToolRegistry registry = new ToolRegistry(new ArrayList<>(tools));
 
         chat = new ChatServiceImpl(sessionRepo, messageRepo, gateway, new FakeRagStore(), registry, router, props,
-                new TokenBucketRateLimiter(100, 6000), new LlmStreamBulkhead(100));
+                new TokenBucketRateLimiter(100, 6000), new LlmStreamBulkhead(100),
+                mock(TokenUsageService.class));
 
         // 会话归属:属于 STUDENT
         ChatSession session = ChatSession.create(STUDENT, null, "t");

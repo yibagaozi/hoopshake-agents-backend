@@ -2,6 +2,7 @@ package com.cnsportiot.cloud.service.impl;
 
 import com.cnsportiot.cloud.auth.RefreshTokenStore;
 import com.cnsportiot.cloud.config.RegisterProperties;
+import com.cnsportiot.cloud.config.StudentProperties;
 import com.cnsportiot.cloud.domain.entity.Account;
 import com.cnsportiot.cloud.domain.entity.Student;
 import com.cnsportiot.cloud.domain.enums.AccountStatus;
@@ -44,6 +45,7 @@ class AuthServiceImplTest {
     @Mock TokenProvider tokenProvider;
     @Mock RefreshTokenStore refreshTokenStore;
     @Mock RegisterProperties registerProperties;
+    @Mock StudentProperties studentProperties;
     @InjectMocks AuthServiceImpl authService;
 
     private Account activeTeacher() {
@@ -483,7 +485,7 @@ class AuthServiceImplTest {
             stubTokenIssue();
 
             AuthUser current = new AuthUser(accountId, "teacher1", Role.TEACHER, null, AccountStatus.PENDING_ACTIVATION);
-            TokenResponse resp = authService.activate(new ActivateRequest("13800000000", "newpwd123"), current);
+            TokenResponse resp = authService.activate(new ActivateRequest("13800000000", "newpwd123", "ABC123"), current);
 
             assertThat(resp.accessToken()).isEqualTo("access-token");
             assertThat(pending.getStatus()).isEqualTo(AccountStatus.ACTIVE);
@@ -501,9 +503,62 @@ class AuthServiceImplTest {
             stubTokenIssue();
 
             AuthUser current = new AuthUser(accountId, "teacher1", Role.TEACHER, null, AccountStatus.PENDING_ACTIVATION);
-            authService.activate(new ActivateRequest(null, "newpwd123"), current);
+            authService.activate(new ActivateRequest(null, "newpwd123", "ABC123"), current);
 
             assertThat(pending.getPhone()).isNull();
+        }
+
+        /** 配置了激活码 → 必须对得上;大小写不敏感。 */
+        @Test
+        void success_withConfiguredActivationCode() {
+            UUID accountId = UUID.randomUUID();
+            Account pending = pendingAccount();
+            given(accountRepository.findById(accountId)).willReturn(Optional.of(pending));
+            given(passwordEncoder.encode("newpwd123")).willReturn("new-hash");
+            given(accountRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+            given(studentProperties.activationCodeRequired()).willReturn(true);
+            given(studentProperties.getActivationCode()).willReturn("ABC123");
+            stubTokenIssue();
+
+            AuthUser current = new AuthUser(accountId, "s1", Role.STUDENT, null, AccountStatus.PENDING_ACTIVATION);
+            authService.activate(new ActivateRequest(null, "newpwd123", "abc123"), current);
+
+            assertThat(pending.getStatus()).isEqualTo(AccountStatus.ACTIVE);
+        }
+
+        /** 激活码不对 → 40112,且账号仍未激活。 */
+        @Test
+        void fail_wrongActivationCode() {
+            UUID accountId = UUID.randomUUID();
+            Account pending = pendingAccount();
+            given(accountRepository.findById(accountId)).willReturn(Optional.of(pending));
+            given(studentProperties.activationCodeRequired()).willReturn(true);
+            given(studentProperties.getActivationCode()).willReturn("ABC123");
+
+            AuthUser current = new AuthUser(accountId, "s1", Role.STUDENT, null, AccountStatus.PENDING_ACTIVATION);
+            assertThatThrownBy(() -> authService.activate(
+                    new ActivateRequest(null, "newpwd123", "WRONG"), current))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).errorCode())
+                    .isEqualTo(ErrorCode.ACTIVATION_CODE_INVALID);
+            assertThat(pending.getStatus()).isEqualTo(AccountStatus.PENDING_ACTIVATION);
+        }
+
+        /** 配置留空 = 不校验:不传 verifyCode 也能激活(保持改动前的行为)。 */
+        @Test
+        void success_whenActivationCodeNotConfigured_codeOptional() {
+            UUID accountId = UUID.randomUUID();
+            Account pending = pendingAccount();
+            given(accountRepository.findById(accountId)).willReturn(Optional.of(pending));
+            given(passwordEncoder.encode("newpwd123")).willReturn("new-hash");
+            given(accountRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+            given(studentProperties.activationCodeRequired()).willReturn(false);
+            stubTokenIssue();
+
+            AuthUser current = new AuthUser(accountId, "s1", Role.STUDENT, null, AccountStatus.PENDING_ACTIVATION);
+            authService.activate(new ActivateRequest(null, "newpwd123", null), current);
+
+            assertThat(pending.getStatus()).isEqualTo(AccountStatus.ACTIVE);
         }
 
         @Test
@@ -512,7 +567,7 @@ class AuthServiceImplTest {
             given(accountRepository.findById(accountId)).willReturn(Optional.of(activeTeacher()));
 
             AuthUser current = new AuthUser(accountId, "teacher1", Role.TEACHER, null, AccountStatus.ACTIVE);
-            assertThatThrownBy(() -> authService.activate(new ActivateRequest(null, "newpwd"), current))
+            assertThatThrownBy(() -> authService.activate(new ActivateRequest(null, "newpwd", "ABC123"), current))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).errorCode())
                     .isEqualTo(ErrorCode.STATE_CONFLICT);
@@ -532,7 +587,7 @@ class AuthServiceImplTest {
             given(accountRepository.findByPhone("13800000000")).willReturn(Optional.of(other));
 
             AuthUser current = new AuthUser(accountId, "teacher1", Role.TEACHER, null, AccountStatus.PENDING_ACTIVATION);
-            assertThatThrownBy(() -> authService.activate(new ActivateRequest("13800000000", "newpwd"), current))
+            assertThatThrownBy(() -> authService.activate(new ActivateRequest("13800000000", "newpwd", "ABC123"), current))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).errorCode())
                     .isEqualTo(ErrorCode.DUPLICATE_IDENTIFIER);

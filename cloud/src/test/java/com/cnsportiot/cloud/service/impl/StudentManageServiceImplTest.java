@@ -82,7 +82,7 @@ class StudentManageServiceImplTest {
 
         assertThat(r.studentNo()).isEqualTo("2024001234");
         assertThat(r.username()).isEqualTo("2024001234");    // 默认用户名=学号
-        assertThat(r.initialPassword()).isTrue();            // password 为空 → 系统生成
+        assertThat(r.initialPassword()).isTrue();            // 初始密码由本地配置导入
         Account acc = cap.getValue();
         assertThat(acc.getUsername()).isEqualTo("2024001234");
         assertThat(acc.getStatus()).isEqualTo(AccountStatus.PENDING_ACTIVATION);
@@ -90,13 +90,15 @@ class StudentManageServiceImplTest {
         verify(auditRepo).save(any());                       // 建档写审计
     }
 
-    @Test void register_explicitUsernameAndPassword_flagFalse() {
+    /** 暂不支持教师手动设置初始密码:即便请求带了 password 也忽略,一律用配置(此处留空→学号)。 */
+    @Test void register_explicitPasswordIsIgnored_usesConfiguredInitialPassword() {
         stubNoDuplicates();
-        when(encoder.encode("secret6")).thenReturn("ENC");
+        when(encoder.encode("2024001234")).thenReturn("ENC");
         RegisterStudentResponse r = svc.registerStudent(reg("2024001234", "user1", "secret6"), OPERATOR);
         assertThat(r.username()).isEqualTo("user1");
-        assertThat(r.initialPassword()).isFalse();           // 显式给了密码
-        verify(encoder).encode("secret6");
+        assertThat(r.initialPassword()).isTrue();
+        verify(encoder).encode("2024001234");     // 配置留空 → 学号本身
+        verify(encoder, never()).encode("secret6");
     }
 
     @Test void register_uniqueViolationOnSave_conflict() {
