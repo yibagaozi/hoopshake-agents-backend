@@ -7,6 +7,7 @@ import com.cnsportiot.edge.capture.CaptureManager;
 import com.cnsportiot.edge.capture.RecordingManager;
 import com.cnsportiot.edge.cloudsync.SessionBatchOrchestrator;
 import com.cnsportiot.edge.config.EdgeProperties;
+import com.cnsportiot.edge.calibration.CalibrationService;
 import com.cnsportiot.edge.cv.CvProcessManager;
 import com.cnsportiot.edge.domain.enums.SessionState;
 import com.cnsportiot.edge.dto.SessionDtos.SessionResponse;
@@ -27,6 +28,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -68,8 +70,13 @@ class SessionServiceImplTest {
         when(recordingManager.aliveByCam()).thenReturn(Map.of());
         when(lessonContextService.context()).thenReturn(Optional.empty());
 
+        // 标定闸:默认放行(mock 的 ensureReady 返回 false 会挡住 CV 启动,
+        // 这里显式给 true 以保持既有断言的语义不变)
+        CalibrationService calibrationService = mock(CalibrationService.class);
+        lenient().when(calibrationService.ensureReady(any())).thenReturn(true);
         svc = new SessionServiceImpl(props, registry, captureManager, recordingManager,
-                lessonContextService, JsonMapper.builder().build(), batchOrchestrator, cvProcessManager);
+                lessonContextService, JsonMapper.builder().build(), batchOrchestrator, cvProcessManager,
+                calibrationService);
     }
 
     private StartSessionRequest req() {

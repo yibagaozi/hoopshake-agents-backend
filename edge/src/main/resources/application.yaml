@@ -137,6 +137,28 @@ hoopshake:
     # enabled=true 且 python/script 已配时,POST /local/enroll/start 异步拉起进程,前端轮询 /local/enroll/status。
     # session 约定 = 课程 id,算法据此把注册产物写 {live.algo-outputs-dir}/{session}/,前端再用同一 session 拉 identities。
     # 相机/RTSP/anchor 等固定参数放 extra-args。未接算法入口前保持 enabled=false(采脸靠人工在算法机上跑)。
+    # 球场标定(直播课):产物按课程隔离在 {work-dir}/data/calibration/live_{课程id}/,
+    # 不覆盖离线的 v2_4cam_zoned。上课拉起 CV 前自动查,缺则按 auto-on-start 拉一次标定。
+    calibration:
+      enabled: ${EDGE_CALIBRATION_ENABLED:true}
+      python-executable: ${ALGO_PYTHON:C:/Users/Eirin/miniforge3/envs/basketball_classroom/python.exe}
+      script-path: scripts/run_live_ws.py
+      work-dir: ${ALGO_HOME:C:/hoopshake/Basketball_inclass_system}
+      output-root: data/calibration
+      dir-prefix: live_
+      required-files:
+        - cameras.json
+        - camera_centers_world.json
+      required-cameras: [cam_01, cam_02, cam_03]
+      # 标定含 GUI 标注(annotate),需人在算法机前操作,故默认不自动拉起:
+      # 上课只做检查与拦截,标定由教师在算法机上做完,或经 POST /local/calibration/run 手动触发
+      auto-on-start: ${EDGE_CALIBRATION_AUTO:false}
+      block-cv-when-missing: ${EDGE_CALIBRATION_BLOCK:true}  # 未标定则本次不启动 CV(录制照常)
+      env:
+        PYTHONUNBUFFERED: "1"
+        PYTHONPATH: "."
+      timeout: 20m
+
     enroll:
       enabled: ${EDGE_ENROLL_ENABLED:true}
       python-executable: ${ALGO_PYTHON:C:/Users/Eirin/miniforge3/envs/basketball_classroom/python.exe}
