@@ -2,6 +2,7 @@ package com.cnsportiot.cloud.service;
 
 import com.cnsportiot.cloud.dto.request.StudentManageRequests.RegisterStudentRequest;
 import com.cnsportiot.cloud.dto.request.StudentManageRequests.UpdateStudentRequest;
+import com.cnsportiot.cloud.dto.response.StudentManageDtos.ResetPasswordResponse;
 import com.cnsportiot.cloud.dto.response.StudentManageDtos.RegisterStudentResponse;
 import com.cnsportiot.cloud.dto.response.StudentManageDtos.StudentBriefResponse;
 import com.cnsportiot.cloud.dto.response.StudentManageDtos.StudentDetailResponse;
@@ -36,4 +37,7 @@ public interface StudentManageService {
      * 6.5 学生数据统计:跨全部 session 聚合
      */
     StudentStatsResponse getStudentStats(UUID studentId);
+
+    /** 1.2 教师重置学生密码:重置回配置的初始密码,账号保持 ACTIVE 并置强制改密 */
+    ResetPasswordResponse resetStudentPassword(UUID studentId);
 }

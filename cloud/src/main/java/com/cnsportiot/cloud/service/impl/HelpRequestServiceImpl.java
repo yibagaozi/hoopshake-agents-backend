@@ -8,6 +8,7 @@ import com.cnsportiot.cloud.dto.request.HelpRequestRequests.CreateHelpRequest;
 import com.cnsportiot.cloud.dto.request.HelpRequestRequests.HandleHelpRequest;
 import com.cnsportiot.cloud.dto.response.HelpRequestDtos.HelpRequestResponse;
 import com.cnsportiot.cloud.dto.response.HelpRequestDtos.TeacherHelpRequestItem;
+import com.cnsportiot.cloud.repository.AccountRepository;
 import com.cnsportiot.cloud.repository.ChatSessionRepository;
 import com.cnsportiot.cloud.repository.HelpRequestRepository;
 import com.cnsportiot.cloud.repository.HelpRequestRepository.HelpRequestView;
@@ -30,6 +31,7 @@ public class HelpRequestServiceImpl implements HelpRequestService {
 
     private final HelpRequestRepository helpRepo;
     private final ChatSessionRepository sessionRepo;
+    private final AccountRepository accountRepository;
 
     @Override
     @Transactional
@@ -111,7 +113,16 @@ public class HelpRequestServiceImpl implements HelpRequestService {
 
     private HelpRequestResponse toStudentDto(HelpRequest hr) {
         return new HelpRequestResponse(hr.getId(), hr.getSessionId(), hr.getQuestion(),
-                hr.getStatus(), hr.getTeacherReply(), hr.getCreatedAt(), hr.getHandledAt());
+                hr.getStatus(), teacherNameOf(hr.getHandledBy()), hr.getTeacherReply(),
+                hr.getCreatedAt(), hr.getHandledAt());
+    }
+
+    /** 处理人姓名;未处理或账号已删则为 null */
+    private String teacherNameOf(java.util.UUID handledBy) {
+        return handledBy == null ? null
+                : accountRepository.findById(handledBy)
+                        .map(com.cnsportiot.cloud.domain.entity.Account::getDisplayName)
+                        .orElse(null);
     }
 
     private TeacherHelpRequestItem toTeacherItem(HelpRequestView v) {

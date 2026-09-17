@@ -1,5 +1,6 @@
 package com.cnsportiot.cloud.service;
 
+import com.cnsportiot.cloud.dto.request.AuthRequests.ChangePasswordRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.LoginRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.RegisterRequest;
 import com.cnsportiot.cloud.dto.request.AuthRequests.ActivateRequest;
@@ -28,4 +29,7 @@ public interface AuthService {
 
     /** 2.6 账号激活:PENDING_ACTIVATION → ACTIVE,设置手机号和新密码,返回新 token */
     TokenResponse activate(ActivateRequest request, AuthUser current);
+
+    /** 自助修改密码。原密码错40111;新密码不合规(如与原密码相同)40113 */
+    void changePassword(ChangePasswordRequest request, AuthUser current);
 }
