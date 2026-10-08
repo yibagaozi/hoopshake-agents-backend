@@ -220,6 +220,11 @@ public class EdgeProperties {
         private Map<String, String> env = new LinkedHashMap<>();
         /** 单次采集墙钟上限,超时强杀并标记 FAILED。 */
         private Duration timeout = Duration.ofMinutes(5);
+        /**
+         * 本地视频注册的导入目录:上传的视频存到 {@code {videoDir}/{session}/},按名注册也只认此目录内的文件
+         * (edge 无鉴权,不接受任意路径)。未配置则视频注册不可用。
+         */
+        private String videoDir;
     }
 
     /**

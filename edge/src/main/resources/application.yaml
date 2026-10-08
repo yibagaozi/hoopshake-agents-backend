@@ -9,6 +9,11 @@ spring:
     import: optional:classpath:checkpoints.yaml
   jackson:
     default-property-inclusion: non_null
+  servlet:
+    multipart:
+      # 本地视频注册上传(POST /local/enroll/import);默认 1MB 会拒绝视频
+      max-file-size: ${EDGE_UPLOAD_MAX_FILE_SIZE:4GB}
+      max-request-size: ${EDGE_UPLOAD_MAX_FILE_SIZE:4GB}
 
 hoopshake:
   edge:
@@ -174,6 +179,9 @@ hoopshake:
         PYTHONPATH: "."
         PYTHONIOENCODING: "utf-8"
       timeout: 5m
+      # 本地视频注册(需算法 2.2.0+enroll.1):POST /local/enroll/import 上传到 {video-dir}/{session}/,
+      # 或 POST /local/enroll/start 带 video(本目录内相对路径,GET /local/enroll/videos 可列)。只认本目录内的文件。
+      video-dir: ${EDGE_ENROLL_VIDEO_DIR:C:/hoopshake/enroll_videos}
 
     # 场边遥测:Java 日志 / Python 输出 / 进程运行数据 / WS 与系统指标批量上云。
     # 队列有界,断网时本次批量会保留在内存中待重试;云不可用时不影响业务进程。
