@@ -194,6 +194,8 @@ hoopshake:
       java-logs-enabled: ${EDGE_TELEMETRY_JAVA_LOGS_ENABLED:true}
       java-log-level: ${EDGE_TELEMETRY_JAVA_LOG_LEVEL:INFO}
       python-logs-enabled: ${EDGE_TELEMETRY_PYTHON_LOGS_ENABLED:true}
+      # 算法直播 [cv-metrics]/[cv-event] 行 → 结构化指标/事件(算法 2.2.0+enroll.1.live.1 起输出)
+      cv-structured-enabled: ${EDGE_TELEMETRY_CV_STRUCTURED_ENABLED:true}
       max-message-chars: 8000
       max-stack-chars: 16000
 

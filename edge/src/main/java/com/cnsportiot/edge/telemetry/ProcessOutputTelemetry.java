@@ -19,11 +19,13 @@ public class ProcessOutputTelemetry {
 
     private final TelemetryCollector collector;
     private final EdgeProperties properties;
+    private final CvStructuredOutput structured;
     private final ConcurrentMap<UUID, StringBuilder> tracebacks = new ConcurrentHashMap<>();
 
     public ProcessOutputTelemetry(TelemetryCollector collector, EdgeProperties properties) {
         this.collector = collector;
         this.properties = properties;
+        this.structured = new CvStructuredOutput(collector);
     }
 
     public void line(String line, String processType, String processName,
@@ -32,6 +34,12 @@ public class ProcessOutputTelemetry {
             return;
         }
         String value = line == null ? "" : line;
+        // 算法结构化行([cv-metrics]/[cv-event])不属于任何 traceback,先于聚合判断
+        if (properties.getTelemetry().isCvStructuredEnabled() && CvStructuredOutput.isStructured(value)
+                && structured.accept(value, processType, processName, runId, pid, sessionId, source,
+                properties.getTelemetry().getMaxMessageChars())) {
+            return;
+        }
         UUID traceKey = traceKey(runId);
         StringBuilder traceback = tracebacks.get(traceKey);
         if (traceback != null) {

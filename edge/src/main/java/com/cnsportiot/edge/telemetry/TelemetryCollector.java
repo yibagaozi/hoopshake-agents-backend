@@ -48,6 +48,14 @@ public class TelemetryCollector {
                 .build());
     }
 
+    /** 带完整上下文(会话/机位/进程)的指标,如算法 [cv-metrics] 行。 */
+    public void metric(TelemetryMetricEvent event) {
+        if (!enabled() || event == null) {
+            return;
+        }
+        offer(event);
+    }
+
     public void run(TelemetryRunEvent event) {
         if (!enabled()) {
             return;

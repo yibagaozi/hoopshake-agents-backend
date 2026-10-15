@@ -311,6 +311,8 @@ public class EdgeProperties {
         private String javaLogLevel = "INFO";
         /** 是否采集 Python stdout/stderr。 */
         private boolean pythonLogsEnabled = true;
+        /** 是否把算法直播的 [cv-metrics] / [cv-event] 行解析为结构化指标与事件(关闭后按普通输出行处理)。 */
+        private boolean cvStructuredEnabled = true;
         /** 单条 message 最大字符数。 */
         private int maxMessageChars = 8_000;
         /** 单条堆栈最大字符数。 */
