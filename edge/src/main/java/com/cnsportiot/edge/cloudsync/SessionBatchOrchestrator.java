@@ -109,6 +109,11 @@ public class SessionBatchOrchestrator {
         emit(sessionId, "manual-publish");
     }
 
+    /** 该会话是否正在跑批处理(录像清理据此跳过)。 */
+    public boolean isProcessing(UUID sessionId) {
+        return inFlight.contains(sessionId);
+    }
+
     // ---- 内部 ----
 
     private void submitBatch(UUID sessionId, Path dataDir) {

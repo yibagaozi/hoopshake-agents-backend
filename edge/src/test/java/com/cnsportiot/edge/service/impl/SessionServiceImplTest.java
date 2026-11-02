@@ -83,6 +83,24 @@ class SessionServiceImplTest {
         return new StartSessionRequest(LESSON);
     }
 
+    // ---- 录像盘空间 ----
+
+    @Test void start_blockedWhenDiskBelowConfiguredFloor() {
+        props.getStorage().setBlockStartFreeGb(1_000_000);   // 远大于任何真实磁盘
+        assertThatThrownBy(() -> svc.start(req()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).errorCode())
+                .isEqualTo(EdgeErrorCode.DISK_SPACE_LOW);
+        verify(recordingManager, never()).startSegment(any(), any());
+        verify(cvProcessManager, never()).start(any());
+    }
+
+    @Test void start_defaultOnlyWarnsOnLowDisk() {
+        props.getStorage().setMinFreeGb(1_000_000);           // 低于告警线:只告警
+        svc.start(req());
+        verify(recordingManager).startSegment(any(), any());
+    }
+
     // ---- CV 生命周期 ----
 
     @Test void start_withLesson_launchesCvWithLessonSession() {
