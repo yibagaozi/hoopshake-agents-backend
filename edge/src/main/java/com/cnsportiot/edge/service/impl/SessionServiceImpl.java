@@ -22,7 +22,6 @@ import com.cnsportiot.edge.dto.SessionDtos.SessionResponse;
 import com.cnsportiot.edge.dto.SessionDtos.StartSessionRequest;
 import com.cnsportiot.edge.dto.SessionDtos.StopSessionResponse;
 import com.cnsportiot.edge.service.SessionService;
-import com.cnsportiot.edge.storage.DiskSpace;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,7 +87,6 @@ public class SessionServiceImpl implements SessionService {
         if (!captureManager.anyRunning()) {
             throw new BusinessException(EdgeErrorCode.FFMPEG_UNAVAILABLE, "采集未启动,无法录制");
         }
-        checkDiskBeforeStart();
 
         // 优先取请求参数,其次取已选课程;都没有则为开发阶段的纯录制
         UUID lessonId = request.lessonId() != null
@@ -215,25 +213,6 @@ public class SessionServiceImpl implements SessionService {
     public RecordingHealth health() {
         return new RecordingHealth(
                 current().state(), recordingManager.recording(), recordingManager.aliveByCam());
-    }
-
-    /**
-     * 开课前查录像盘空间:低于 storage.block-start-free-gb(>0)拒绝开课,低于 storage.min-free-gb 只告警。
-     * 一节课四路录像约 {@code 码率 × 机位数 × 时长},磁盘写满时 ffmpeg 直接退出、这节课的录像不完整。
-     */
-    private void checkDiskBeforeStart() {
-        EdgeProperties.Storage st = props.getStorage();
-        long free = DiskSpace.usableBytes(Path.of(props.getDataRoot()));
-        long minutes = free / DiskSpace.recordBytesPerSecond(props) / 60;
-        if (st.getBlockStartFreeGb() > 0 && free < st.getBlockStartFreeGb() * DiskSpace.GB) {
-            throw new BusinessException(EdgeErrorCode.DISK_SPACE_LOW, String.format(
-                    "录像盘可用 %d GB(约可录 %d 分钟),低于开课下限 %d GB;请先清理录像(GET /local/storage)",
-                    free / DiskSpace.GB, minutes, st.getBlockStartFreeGb()));
-        }
-        if (st.getMinFreeGb() > 0 && free < st.getMinFreeGb() * DiskSpace.GB) {
-            log.warn("录像盘可用空间 {} GB,低于告警线 {} GB,约可录 {} 分钟", free / DiskSpace.GB,
-                    st.getMinFreeGb(), minutes);
-        }
     }
 
     /**

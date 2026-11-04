@@ -9,11 +9,6 @@ spring:
     import: optional:classpath:checkpoints.yaml
   jackson:
     default-property-inclusion: non_null
-  servlet:
-    multipart:
-      # 本地视频注册上传(POST /local/enroll/import);默认 1MB 会拒绝视频
-      max-file-size: ${EDGE_UPLOAD_MAX_FILE_SIZE:4GB}
-      max-request-size: ${EDGE_UPLOAD_MAX_FILE_SIZE:4GB}
 
 hoopshake:
   edge:
@@ -50,8 +45,6 @@ hoopshake:
       api-base: http://127.0.0.1:9997
       ready-timeout-millis: 10000
 
-    # 录像为 -c copy,文件大小 ≈ bitrate × 机位数 × 时长:8M × 4 路 ≈ 14 GB/小时。
-    # 实际码率见 GET /local/storage 各文件 avgMbps;CV 实时推理读同一路流,调整前用回放评估(见算法 docs/实时推理观测与精度评估.md)。
     encode:
       video-size: 1920x1080
       framerate: 15
@@ -63,19 +56,6 @@ hoopshake:
       maxrate: 12M
       gop: 15
       pix-fmt: yuv420p
-
-    # 录像保留与磁盘保护(GET /local/storage 查看占用与可清理项)。默认不自动删除任何文件。
-    storage:
-      # 保留天数(按下课时间);0 = 不自动清理。只删录像,meta.json / cloud/ 等保留
-      raw-retention-days: ${EDGE_STORAGE_RAW_RETENTION_DAYS:0}
-      # true:只清理已成功出云(cloud/published.json ok=true)的会话;课后批处理未接通时需设 false
-      require-published: ${EDGE_STORAGE_REQUIRE_PUBLISHED:true}
-      # 低于此值告警;开启清理时提前清理最旧的可清理会话(至少下课 pressure-min-age-hours 小时)
-      min-free-gb: ${EDGE_STORAGE_MIN_FREE_GB:50}
-      pressure-min-age-hours: 24
-      # 开课时可用空间低于此值拒绝开课;0 = 只告警
-      block-start-free-gb: ${EDGE_STORAGE_BLOCK_START_FREE_GB:0}
-      check-interval: 10m
 
     cloud:
       base-url: https://agent.cnsportiot.com
@@ -194,9 +174,6 @@ hoopshake:
         PYTHONPATH: "."
         PYTHONIOENCODING: "utf-8"
       timeout: 5m
-      # 本地视频注册(需算法 2.2.0+enroll.1):POST /local/enroll/import 上传到 {video-dir}/{session}/,
-      # 或 POST /local/enroll/start 带 video(本目录内相对路径,GET /local/enroll/videos 可列)。只认本目录内的文件。
-      video-dir: ${EDGE_ENROLL_VIDEO_DIR:C:/hoopshake/enroll_videos}
 
     # 场边遥测:Java 日志 / Python 输出 / 进程运行数据 / WS 与系统指标批量上云。
     # 队列有界,断网时本次批量会保留在内存中待重试;云不可用时不影响业务进程。
@@ -209,8 +186,6 @@ hoopshake:
       java-logs-enabled: ${EDGE_TELEMETRY_JAVA_LOGS_ENABLED:true}
       java-log-level: ${EDGE_TELEMETRY_JAVA_LOG_LEVEL:INFO}
       python-logs-enabled: ${EDGE_TELEMETRY_PYTHON_LOGS_ENABLED:true}
-      # 算法直播 [cv-metrics]/[cv-event] 行 → 结构化指标/事件(算法 2.2.0+enroll.1.live.1 起输出)
-      cv-structured-enabled: ${EDGE_TELEMETRY_CV_STRUCTURED_ENABLED:true}
       max-message-chars: 8000
       max-stack-chars: 16000
 

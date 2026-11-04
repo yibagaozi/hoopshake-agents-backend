@@ -93,40 +93,6 @@ class SessionCloudPublisherTest {
     }
 
     @Test
-    void publish_writesResultMarker_okOnlyWhenEveryStepSucceeded(@TempDir Path root) throws Exception {
-        Path dir = writeSession(root);
-        ObjectStore store = mock(ObjectStore.class);
-        when(store.put(any(), any(), any())).thenReturn(new ObjectStore.StoredObject("s3://hoopshake/m.jsonl", 42));
-        CloudIngestClient cloud = mock(CloudIngestClient.class);
-
-        pub(props(root), store, cloud).publish(SID);
-        var ok = mapper.readTree(Files.readString(dir.resolve("cloud/published.json")));
-        assertThat(ok.path("ok").asBoolean()).isTrue();
-        assertThat(ok.path("clipCount").asInt()).isEqualTo(1);
-
-        doThrow(new RuntimeException("503")).when(cloud).pushActionClips(any(), any());
-        pub(props(root), store, cloud).publish(SID);
-        var failed = mapper.readTree(Files.readString(dir.resolve("cloud/published.json")));
-        assertThat(failed.path("ok").asBoolean()).isFalse();
-        assertThat(failed.path("clips").asBoolean()).isFalse();
-        assertThat(failed.path("session").asBoolean()).isTrue();
-    }
-
-    @Test
-    void publish_motionUploadFailure_markedNotOk(@TempDir Path root) throws Exception {
-        Path dir = writeSession(root);
-        ObjectStore store = mock(ObjectStore.class);
-        when(store.put(any(), any(), any())).thenThrow(new RuntimeException("minio down"));
-        CloudIngestClient cloud = mock(CloudIngestClient.class);
-
-        pub(props(root), store, cloud).publish(SID);
-
-        var r = mapper.readTree(Files.readString(dir.resolve("cloud/published.json")));
-        assertThat(r.path("ok").asBoolean()).isFalse();
-        assertThat(r.path("motion").asBoolean()).isFalse();
-    }
-
-    @Test
     void publish_missingHandoff_noCloudCalls(@TempDir Path root) {
         ObjectStore store = mock(ObjectStore.class);
         CloudIngestClient cloud = mock(CloudIngestClient.class);

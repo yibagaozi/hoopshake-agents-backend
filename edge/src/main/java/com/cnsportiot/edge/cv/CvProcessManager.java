@@ -186,12 +186,7 @@ public class CvProcessManager {
                     new InputStreamReader(in, StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    if (line.startsWith("[cv-metrics] ")) {
-                        // 每 10 s 一批、单行数 KB:已转为遥测指标,本地日志只在 DEBUG 下保留
-                        log.debug("[cv] {}", line);
-                    } else {
-                        log.info("[cv] {}", line);
-                    }
+                    log.info("[cv] {}", line);
                     outputTelemetry.line(line, "cv", "cv", lineRunId,
                             pid, session, "python");
                 }

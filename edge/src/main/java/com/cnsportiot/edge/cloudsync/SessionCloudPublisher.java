@@ -8,7 +8,6 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,8 +26,6 @@ public class SessionCloudPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(SessionCloudPublisher.class);
     private static final String META_FILE = "meta.json";
-    /** 出云结果(相对 session 目录);录像清理在 requirePublished=true 时只清 ok=true 的会话。 */
-    static final String PUBLISHED_REL = "cloud/published.json";
 
     private final EdgeProperties props;
     private final ObjectStore objectStore;
@@ -61,38 +58,13 @@ public class SessionCloudPublisher {
             return;
         }
 
-        boolean motionRequired = handoff.session() != null && handoff.session().motionExportRelPath() != null;
         String motionUri = uploadMotion(sessionId, dir, handoff);
-        boolean sessionOk = upsertSession(sessionId, dir, handoff, motionUri);
-        boolean clipsOk = pushClips(sessionId, handoff, motionUri);
-        int[] galleries = pushGalleries(sessionId, dir, handoff);
-        boolean motionOk = !motionRequired || motionUri != null;
-        boolean ok = motionOk && sessionOk && clipsOk && galleries[1] == 0;
-        writeResult(sessionId, dir, ok, motionOk, sessionOk, clipsOk, handoff, galleries);
-        log.info("会话出云完成 session={} ok={} clips={} galleries={}", sessionId, ok,
+        upsertSession(sessionId, dir, handoff, motionUri);
+        pushClips(sessionId, handoff, motionUri);
+        pushGalleries(sessionId, dir, handoff);
+        log.info("会话出云完成 session={} clips={} galleries={}", sessionId,
                 handoff.clips() == null ? 0 : handoff.clips().size(),
                 handoff.galleries() == null ? 0 : handoff.galleries().size());
-    }
-
-    /** 写 cloud/published.json:每次出云覆盖;某步失败时 ok=false,重新出云成功后变为 true。 */
-    private void writeResult(UUID sessionId, Path dir, boolean ok, boolean motionOk, boolean sessionOk,
-                             boolean clipsOk, SessionHandoff h, int[] galleries) {
-        Map<String, Object> r = new LinkedHashMap<>();
-        r.put("ok", ok);
-        r.put("publishedAt", OffsetDateTime.now().toString());
-        r.put("motion", motionOk);
-        r.put("session", sessionOk);
-        r.put("clips", clipsOk);
-        r.put("clipCount", h.clips() == null ? 0 : h.clips().size());
-        r.put("galleriesOk", galleries[0]);
-        r.put("galleriesFailed", galleries[1]);
-        try {
-            Path p = dir.resolve(PUBLISHED_REL);
-            Files.createDirectories(p.getParent());
-            Files.writeString(p, objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(r));
-        } catch (Exception e) {
-            log.warn("出云结果写入失败 session={}: {}", sessionId, e.getMessage());
-        }
     }
 
     private String uploadMotion(UUID sessionId, Path dir, SessionHandoff h) {
@@ -113,7 +85,7 @@ public class SessionCloudPublisher {
         }
     }
 
-    private boolean upsertSession(UUID sessionId, Path dir, SessionHandoff h, String motionUri) {
+    private void upsertSession(UUID sessionId, Path dir, SessionHandoff h, String motionUri) {
         try {
             SessionHandoff.SessionPart sp = h.session();
             Map<String, Object> body = new LinkedHashMap<>();
@@ -138,16 +110,14 @@ public class SessionCloudPublisher {
                 body.put("motionExportUri", motionUri);
             }
             cloud.reportSession(sessionId, body);
-            return true;
         } catch (RuntimeException e) {
             log.warn("会话状态上报失败 session={}: {}", sessionId, e.getMessage());
-            return false;
         }
     }
 
-    private boolean pushClips(UUID sessionId, SessionHandoff h, String motionUri) {
+    private void pushClips(UUID sessionId, SessionHandoff h, String motionUri) {
         if (h.clips() == null || h.clips().isEmpty()) {
-            return true;
+            return;
         }
         List<Map<String, Object>> items = new ArrayList<>();
         for (SessionHandoff.ClipPart c : h.clips()) {
@@ -188,18 +158,14 @@ public class SessionCloudPublisher {
         }
         try {
             cloud.pushActionClips(sessionId, items);
-            return true;
         } catch (RuntimeException e) {
             log.warn("动作片段上报失败 session={} clips={}: {}", sessionId, items.size(), e.getMessage());
-            return false;
         }
     }
 
-    /** @return [成功数, 失败数];特征文件缺失/上传失败(登记了占位 uri)也算失败 */
-    private int[] pushGalleries(UUID sessionId, Path dir, SessionHandoff h) {
-        int[] result = {0, 0};
+    private void pushGalleries(UUID sessionId, Path dir, SessionHandoff h) {
         if (h.galleries() == null) {
-            return result;
+            return;
         }
         for (SessionHandoff.GalleryPart g : h.galleries()) {
             try {
@@ -242,13 +208,10 @@ public class SessionCloudPublisher {
                     body.put("enrolledAt", g.enrolledAt());
                 }
                 cloud.registerGallery(body);
-                result[storageUri != null || g.storageRelPath() == null ? 0 : 1]++;
             } catch (RuntimeException e) {
                 log.warn("gallery 登记失败 session={} student={}: {}", sessionId, g.studentId(), e.getMessage());
-                result[1]++;
             }
         }
-        return result;
     }
 
     /** 交接文件没给 lessonId 时,回落读 edge 写的 meta.json。 */
