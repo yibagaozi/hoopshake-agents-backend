@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  与 Spring Boot 默认配置相同(控制台 + logging.file.name 指定的文件),唯一的区别是控制台输出改为异步且永不阻塞。
+
+  原因:在 Windows 命令行窗口里运行 edge 时,点击或拖选窗口文字会进入"选择"模式,写控制台被挂起。
+  同步的 ConsoleAppender 因此阻塞,调用日志的线程跟着停住,其中包括读取 CV 进程输出的线程,
+  CV 的 stdout 无人读取,表现为运行一段时间后不再有任何输出。
+
+  异步队列写满时丢弃控制台日志而不是等待;文件日志与遥测上报不受影响,仍是完整的。
+  现场仍建议以服务方式运行(WinSW / NSSM),或关闭命令行窗口的"快速编辑模式"。
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <property name="LOG_FILE" value="${LOG_FILE:-${LOG_PATH:-${LOG_TEMP:-${java.io.tmpdir:-/tmp}}}/spring.log}"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+    <include resource="org/springframework/boot/logging/logback/file-appender.xml"/>
+
+    <appender name="ASYNC_CONSOLE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="CONSOLE"/>
+        <queueSize>8192</queueSize>
+        <!-- 0:队列快满时不提前丢 INFO;真正写满时由 neverBlock 丢弃 -->
+        <discardingThreshold>0</discardingThreshold>
+        <neverBlock>true</neverBlock>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="ASYNC_CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>

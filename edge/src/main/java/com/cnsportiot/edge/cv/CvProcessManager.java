@@ -49,6 +49,10 @@ public class CvProcessManager {
     private volatile OffsetDateTime startedAt;
     private volatile boolean pendingAttempt;
     private final AtomicInteger restartCount = new AtomicInteger();
+    /** 输出行处理异常次数(读线程不退出) */
+    private final java.util.concurrent.atomic.AtomicLong drainErrorCount = new java.util.concurrent.atomic.AtomicLong();
+    /** 算法看门狗卡住超时后以该退出码退出,依赖 edge 重启 */
+    static final int WATCHDOG_EXIT_CODE = 70;
 
     public CvProcessManager(EdgeProperties props,
                             @Qualifier("captureIoExecutor") TaskExecutor captureIoExecutor,
@@ -109,7 +113,8 @@ public class CvProcessManager {
                 this::drainToLog,
                 cfg.isAutoRestart(),
                 cfg.getMaxFailures()),
-                new CvProcessListener());
+                new CvProcessListener())
+                .stableUptime(cfg.getStableUptime());
         currentSession = s;
         currentCommand = cmd;
         currentWorkDir = cfg.getWorkDir();
@@ -186,9 +191,21 @@ public class CvProcessManager {
                     new InputStreamReader(in, StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    log.info("[cv] {}", line);
-                    outputTelemetry.line(line, "cv", "cv", lineRunId,
-                            pid, session, "python");
+                    // 逐行兜底:日志或遥测处理抛一次异常就退出循环的话,之后没人读 CV 的输出,
+                    // 旧版算法会卡在 print 上,新版算法的日志会全部丢失。只有流关闭(进程退出)才结束
+                    try {
+                        if (line.startsWith("[cv-metrics] ")) {
+                            // 每 10 s 一批、单行数 KB:已转为遥测指标,本地日志只在 DEBUG 下保留
+                            log.debug("[cv] {}", line);
+                        } else {
+                            log.info("[cv] {}", line);
+                        }
+                        outputTelemetry.line(line, "cv", "cv", lineRunId,
+                                pid, session, "python");
+                    } catch (RuntimeException e) {
+                        drainErrorCount.incrementAndGet();
+                        log.warn("CV 输出行处理失败,继续读取: {}", e.toString());
+                    }
                 }
             } catch (Exception ignored) {
                 // 流关闭即进程退出,由 ManagedProcess 处理
@@ -260,6 +277,10 @@ public class CvProcessManager {
 
         @Override
         public void onExited(String name, long pid, int exitCode, boolean expected) {
+            if (!expected && exitCode == WATCHDOG_EXIT_CODE) {
+                log.warn("CV 看门狗退出(exit={}),即将自动重启;原因见 {}/{}/exit-*.txt", exitCode,
+                        props.getLive().getAlgoOutputsDir(), currentSession);
+            }
             finishAttempt(expected ? "STOPPED" : "FAILED", exitCode,
                     Map.of("expectedExit", expected));
         }

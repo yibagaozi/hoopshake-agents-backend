@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
@@ -29,6 +30,8 @@ public class ManagedProcess implements Runnable {
     private volatile Process process;
     private volatile boolean desiredRunning;
     private int consecutiveFailures;
+    /** >0 时:进程存活超过该时长才清零连续失败计数;0 = 每次成功启动即清零(默认,录制等进程沿用) */
+    private volatile long stableUptimeMillis;
 
     public ManagedProcess(ProcessSpec spec) {
         this(spec, null);
@@ -37,6 +40,15 @@ public class ManagedProcess implements Runnable {
     public ManagedProcess(ProcessSpec spec, ManagedProcessListener listener) {
         this.spec = spec;
         this.listener = listener;
+    }
+
+    /**
+     * 设置"稳定运行"时长:进程存活超过它才把连续失败计数清零,用于让一启动就退的持续性故障
+     * 在 maxFailures 次后停止重启。null 或 ≤0 保持默认行为。须在提交执行前调用。
+     */
+    public ManagedProcess stableUptime(Duration d) {
+        this.stableUptimeMillis = d == null || d.isNegative() ? 0 : d.toMillis();
+        return this;
     }
 
     /** 提交到 supervisor 线程池执行,线程常驻直至 stop() */
@@ -48,7 +60,10 @@ public class ManagedProcess implements Runnable {
                 state.set(ProcessState.STARTING);
                 process = launch();
                 state.set(ProcessState.RUNNING);
-                consecutiveFailures = 0;
+                long launchedAt = System.nanoTime();
+                if (stableUptimeMillis <= 0) {
+                    consecutiveFailures = 0;
+                }
                 log.info("进程已启动: {} pid={}", spec.name(), process.pid());
                 notifyStarted(process.pid());
 
@@ -57,6 +72,10 @@ public class ManagedProcess implements Runnable {
                 if (!desiredRunning) {
                     notifyExited(exitedPid, exit, true);
                     break;
+                }
+                if (stableUptimeMillis > 0
+                        && (System.nanoTime() - launchedAt) / 1_000_000 >= stableUptimeMillis) {
+                    consecutiveFailures = 0;   // 已稳定运行过,这次退出不与之前的失败累计
                 }
                 log.warn("进程非预期退出: {} exit={}", spec.name(), exit);
                 notifyExited(exitedPid, exit, false);

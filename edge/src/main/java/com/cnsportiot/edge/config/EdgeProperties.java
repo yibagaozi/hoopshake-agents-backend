@@ -52,6 +52,8 @@ public class EdgeProperties {
 
     private Telemetry telemetry = new Telemetry();
 
+    private Storage storage = new Storage();
+
     @Getter
     @Setter
     public static class Camera {
@@ -119,6 +121,11 @@ public class EdgeProperties {
         private Map<String, String> env = new LinkedHashMap<>();
         private boolean autoRestart = true;
         private int maxFailures = 5;
+        /**
+         * 进程存活超过这么久才把连续失败计数清零。默认 60 s:算法看门狗退出(运行很久之后)照常无限重启;
+         * 一启动就退的持续性故障(如模型缺失)累计到 maxFailures 次后停止重启,不再无限刷日志。0 = 每次启动即清零(旧行为)
+         */
+        private Duration stableUptime = Duration.ofSeconds(60);
         /** 未指定 session 时(手动按钮不带参数 / auto-start)用的默认 session。 */
         private String defaultSession = "live";
     }
@@ -220,6 +227,11 @@ public class EdgeProperties {
         private Map<String, String> env = new LinkedHashMap<>();
         /** 单次采集墙钟上限,超时强杀并标记 FAILED。 */
         private Duration timeout = Duration.ofMinutes(5);
+        /**
+         * 本地视频注册的导入目录:上传的视频存到 {@code {videoDir}/{session}/},按名注册也只认此目录内的文件
+         * (edge 无鉴权,不接受任意路径)。未配置则视频注册不可用。
+         */
+        private String videoDir;
     }
 
     /**
@@ -306,10 +318,36 @@ public class EdgeProperties {
         private String javaLogLevel = "INFO";
         /** 是否采集 Python stdout/stderr。 */
         private boolean pythonLogsEnabled = true;
+        /** 是否把算法直播的 [cv-metrics] / [cv-event] 行解析为结构化指标与事件(关闭后按普通输出行处理)。 */
+        private boolean cvStructuredEnabled = true;
         /** 单条 message 最大字符数。 */
         private int maxMessageChars = 8_000;
         /** 单条堆栈最大字符数。 */
         private int maxStackChars = 16_000;
+    }
+
+    /**
+     * 录像存储:{data-root}/sessions/{sessionId}/ 下的录像(meta.json 中列出的分段文件)的保留与磁盘保护。
+     * <b>默认不删任何文件</b>(rawRetentionDays=0),与此前行为相同;状态见 {@code GET /local/storage}。
+     */
+    @Getter
+    @Setter
+    public static class Storage {
+        /** 录像保留天数(按下课时间算);0 = 不自动清理。只删录像文件,meta.json、cloud/ 等小文件保留。 */
+        private int rawRetentionDays = 0;
+        /**
+         * true:只清理已成功出云的会话(cloud/published.json 中 ok=true)。
+         * 课后批处理/出云未接通时,设为 false 才会按天数清理。
+         */
+        private boolean requirePublished = true;
+        /** 可用空间低于此值(GB)时告警;开启清理时提前清理最旧的可清理会话,直到回到此值以上。 */
+        private long minFreeGb = 50;
+        /** 空间不足时提前清理,只清理下课超过这么多小时的会话(给批处理留时间)。 */
+        private long pressureMinAgeHours = 24;
+        /** 开课时可用空间低于此值(GB)直接拒绝开课(DISK_SPACE_LOW);0 = 只告警不拒绝。 */
+        private long blockStartFreeGb = 0;
+        /** 检查间隔。 */
+        private Duration checkInterval = Duration.ofMinutes(10);
     }
 
     /** 出云选路。批处理(session/clips/gallery)可走 MQ;实时反馈始终走 HTTP */

@@ -41,6 +41,8 @@ public class CvChannelHandler extends TextWebSocketHandler {
     private final AtomicLong receivedCount = new AtomicLong();
     private final AtomicLong payloadBytes = new AtomicLong();
     private final AtomicLong parseErrorCount = new AtomicLong();
+    /** 下游监听器处理事件时抛出的异常数(异常已拦下,连接保持) */
+    private final AtomicLong listenerErrorCount = new AtomicLong();
     private final Map<String, AtomicLong> eventCounts = new ConcurrentHashMap<>();
 
     private volatile boolean connected;
@@ -107,8 +109,15 @@ public class CvChannelHandler extends TextWebSocketHandler {
                 key -> new AtomicLong()).incrementAndGet();
         lastEventAt = Instant.now();
 
-        // payload 原样透传;WsHub 会重新序列化后扇出
-        publisher.publish(type, frame.path("payload"));
+        // payload 原样透传;WsHub 会重新序列化后扇出。
+        // 监听器(LiveActionListener、WsHub、规则引擎等)在本线程同步执行,任何一个抛出的异常若传给 Spring,
+        // ExceptionWebSocketHandlerDecorator 会以 1011 关闭 CV 连接,之后的动作全部丢失。这里拦下,只跳过这一条
+        try {
+            publisher.publish(type, frame.path("payload"));
+        } catch (RuntimeException e) {
+            listenerErrorCount.incrementAndGet();
+            log.error("CV 事件处理异常,已跳过 type={} seq={}", typeName, frame.path("seq").asLong(-1), e);
+        }
     }
 
     /** 丢帧检测:骨架帧丢了只记数,业务事件丢了要告警——那意味着有反馈永久丢失 */
@@ -156,6 +165,10 @@ public class CvChannelHandler extends TextWebSocketHandler {
 
     public long parseErrorCount() {
         return parseErrorCount.get();
+    }
+
+    public long listenerErrorCount() {
+        return listenerErrorCount.get();
     }
 
     public Map<String, Long> eventCounts() {

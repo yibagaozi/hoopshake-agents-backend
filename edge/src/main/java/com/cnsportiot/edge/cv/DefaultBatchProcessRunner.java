@@ -133,9 +133,14 @@ public class DefaultBatchProcessRunner implements BatchProcessRunner {
                     new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    log.info("[batch] {}", line);
-                    outputTelemetry.line(line, "batch", processName, runId,
-                            process.pid(), null, source);
+                    // 逐行兜底,同 CvProcessManager:处理异常不能让读线程退出,否则子进程会卡在写输出上
+                    try {
+                        log.info("[batch] {}", line);
+                        outputTelemetry.line(line, "batch", processName, runId,
+                                process.pid(), null, source);
+                    } catch (RuntimeException e) {
+                        log.warn("批处理输出行处理失败,继续读取: {}", e.toString());
+                    }
                 }
             } catch (IOException ignored) {
                 // 流关闭即进程退出

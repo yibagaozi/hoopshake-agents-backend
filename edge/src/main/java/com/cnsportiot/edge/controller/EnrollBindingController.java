@@ -8,6 +8,7 @@ import com.cnsportiot.edge.cloudsync.CloudIngestClient;
 import com.cnsportiot.edge.domain.RosterEntry;
 import com.cnsportiot.edge.identity.EnrollLauncher;
 import com.cnsportiot.edge.identity.EnrollLauncher.EnrollRunStatus;
+import com.cnsportiot.edge.identity.EnrollLauncher.VideoFile;
 import com.cnsportiot.edge.identity.IdentityBindingStore;
 import com.cnsportiot.edge.identity.IdentityBindingStore.Binding;
 import com.cnsportiot.edge.service.RosterService;
@@ -20,9 +21,12 @@ import org.springframework.http.ResponseEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -70,7 +74,32 @@ public class EnrollBindingController {
     public ApiResponse<EnrollRunStatus> start(@Valid @RequestBody StartEnrollRequest request) {
         return ApiResponse.ok(enrollLauncher.start(
                 request.session(), request.enrollCamera(), request.seconds(),
-                request.sampleHz(), request.expectedPersons()));
+                request.sampleHz(), request.expectedPersons(), request.video()));
+    }
+
+    /**
+     * 从本地导入视频注册:上传视频(multipart {@code file})→ 存入导入目录 {@code {session}/} → 拉起视频注册(异步),
+     * 之后与直播采集一样轮询 {@link #status}、拉 {@link #identities}。{@code seconds} 为只处理前 N 秒(默认整段)。
+     */
+    @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<EnrollRunStatus> importVideo(@RequestParam String session,
+                                                    @RequestPart("file") MultipartFile file,
+                                                    @RequestParam(required = false) Double seconds,
+                                                    @RequestParam(required = false) Integer sampleHz,
+                                                    @RequestParam(required = false) Integer expectedPersons) {
+        String video;
+        try (InputStream in = file.getInputStream()) {
+            video = enrollLauncher.importVideo(session, file.getOriginalFilename(), in);
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "读取上传视频失败: " + e.getMessage());
+        }
+        return ApiResponse.ok(enrollLauncher.start(session, null, seconds, sampleHz, expectedPersons, video));
+    }
+
+    /** 导入目录里可用于注册的视频;{@code video} 字段可直接作 {@code /start} 的 video。 */
+    @GetMapping("/videos")
+    public ApiResponse<List<VideoFile>> videos() {
+        return ApiResponse.ok(enrollLauncher.listVideos());
     }
 
     /** 采集状态轮询:RUNNING/SUCCEEDED/FAILED/NONE(从未跑过)。前端据此在 SUCCEEDED 后拉注册结果。 */
@@ -205,13 +234,17 @@ public class EnrollBindingController {
 
     // ---- DTO ----
 
-    /** 开始采集入参。session 必填(= 课程 id);其余可空,空则用 hoopshake.edge.enroll.* 默认。 */
+    /**
+     * 开始采集入参。session 必填(= 课程 id);其余可空,空则用 hoopshake.edge.enroll.* 默认。
+     * video 非空 = 从导入目录里的该视频注册(取值见 {@code GET /local/enroll/videos}),此时 seconds 为只处理前 N 秒。
+     */
     public record StartEnrollRequest(
             @NotBlank String session,
             String enrollCamera,
             Double seconds,
             Integer sampleHz,
-            Integer expectedPersons) {}
+            Integer expectedPersons,
+            String video) {}
 
     public record EnrolledIdentities(String session, String enrollCamera, List<EnrolledPerson> people) {}
 

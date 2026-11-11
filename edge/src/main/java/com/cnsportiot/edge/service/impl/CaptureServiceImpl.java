@@ -17,13 +17,14 @@ import com.cnsportiot.edge.dto.ConsoleDtos.StateResponse;
 import com.cnsportiot.edge.service.CaptureService;
 import com.cnsportiot.edge.service.LessonContextService;
 import com.cnsportiot.edge.service.SessionService;
+import com.cnsportiot.edge.storage.DiskSpace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,9 +33,6 @@ import java.util.Map;
 public class CaptureServiceImpl implements CaptureService {
 
     private static final Logger log = LoggerFactory.getLogger(CaptureServiceImpl.class);
-
-    /** 四路 8Mbps 估算:8 * 4 / 8 = 4 MB/s */
-    private static final long BYTES_PER_SECOND_ALL_CAMS = 4L * 1024 * 1024;
 
     private final EdgeProperties props;
     private final CameraRegistry registry;
@@ -117,10 +115,11 @@ public class CaptureServiceImpl implements CaptureService {
     }
 
     private DiskState diskState() {
-        File root = new File(props.getDataRoot());
-        long free = root.getUsableSpace();
-        long total = root.getTotalSpace();
-        long minutes = free / BYTES_PER_SECOND_ALL_CAMS / 60;
+        // 按配置的编码码率 × 机位数估算(原固定按四路 8 Mbps);降码率后剩余分钟数随之变化
+        Path root = Path.of(props.getDataRoot());
+        long free = DiskSpace.usableBytes(root);
+        long total = DiskSpace.totalBytes(root);
+        long minutes = free / DiskSpace.recordBytesPerSecond(props) / 60;
         return new DiskState(free, total, minutes);
     }
 }

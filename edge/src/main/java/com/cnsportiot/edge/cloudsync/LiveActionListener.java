@@ -90,10 +90,13 @@ public class LiveActionListener {
             return;
         }
         WsEvents.ActionFinalized a;
+        String actionId;
         try {
             // payload 是算法原生结构(snake_case),由 /internal/cv/stream 透传过来;显式解析,不靠字段名自动映射
             JsonNode n = event.payload() instanceof JsonNode jn ? jn : objectMapper.valueToTree(event.payload());
             a = parseActionFinalized(n);
+            // 算法 live.1 起每条动作带 action_id,与 CV 日志 [cv-event] action_emitted 对应;旧版算法为 null
+            actionId = jstr(n, "action_id");
         } catch (RuntimeException e) {
             log.warn("action_finalized 解析失败,忽略: {}", e.getMessage());
             return;
@@ -116,6 +119,9 @@ public class LiveActionListener {
         publisher.publish(WsEventType.ACTION_FOCUS, toFocus(a, studentId, studentNo, displayName));
 
         UUID sessionId = currentSessionId();
+        log.info("直播动作 action_id={} type={} stu={} gid={} 已绑定={} made={} angles={} session={}",
+                actionId, a.actionType(), a.studentLocalId(), a.globalId(), studentNo != null || studentId != null,
+                a.made(), a.angles() == null ? 0 : a.angles().size(), sessionId);
 
         // 2) angles → cue(需规则开关 + 有身份 + 有角度)
         if (ruleProps.isEnabled() && (studentNo != null || studentId != null)
@@ -130,7 +136,7 @@ public class LiveActionListener {
             promptEnrollIfNew(a);
         }
         if (sessionId == null || (!hasIdentity && !props.getLive().isPersistUnbound())) {
-            log.debug("直播动作只上屏不落库 session={} 身份={}", sessionId, hasIdentity);
+            log.debug("直播动作只上屏不落库 action_id={} session={} 身份={}", actionId, sessionId, hasIdentity);
             return;
         }
         String idKey = studentId != null ? studentId.toString() : (studentNo != null ? studentNo : a.studentLocalId());
@@ -140,7 +146,8 @@ public class LiveActionListener {
             try {
                 cloud.pushActionClips(sessionId, List.of(clip));
             } catch (RuntimeException e) {
-                log.warn("直播动作落库失败 session={} id={} clip={}: {}", sessionId, idKey, clipIndex, e.getMessage());
+                log.warn("直播动作落库失败 action_id={} session={} id={} clip={}: {}",
+                        actionId, sessionId, idKey, clipIndex, e.getMessage());
             }
         });
     }

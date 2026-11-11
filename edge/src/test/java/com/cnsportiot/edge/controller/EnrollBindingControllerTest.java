@@ -7,22 +7,31 @@ import com.cnsportiot.edge.controller.EnrollBindingController.BindItem;
 import com.cnsportiot.edge.controller.EnrollBindingController.BindRequest;
 import com.cnsportiot.edge.controller.EnrollBindingController.BoundPerson;
 import com.cnsportiot.edge.controller.EnrollBindingController.EnrolledIdentities;
+import com.cnsportiot.edge.controller.EnrollBindingController.StartEnrollRequest;
 import com.cnsportiot.edge.domain.RosterEntry;
 import com.cnsportiot.edge.identity.EnrollLauncher;
+import com.cnsportiot.edge.identity.EnrollLauncher.EnrollRunStatus;
+import com.cnsportiot.edge.identity.EnrollLauncher.EnrollState;
+import com.cnsportiot.edge.identity.EnrollLauncher.VideoFile;
 import com.cnsportiot.edge.identity.IdentityBindingStore;
 import com.cnsportiot.edge.service.RosterService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.mock.web.MockMultipartFile;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -103,6 +112,45 @@ class EnrollBindingControllerTest {
         assertThat(store.forGlobal("stu_global_01").studentNo()).isEqualTo("2021001");
         verify(cloud).syncFaceBinding(lessonId, "stu_00", "stu_global_01",
                 STU.toString(), "2021001", edgeProps.getEdgeId());
+    }
+
+    @Test
+    void importVideo_savesUploadThenStartsVideoEnrollment(@TempDir Path root, @TempDir Path algoOut) throws Exception {
+        EnrollLauncher launcher = mock(EnrollLauncher.class);
+        MockMultipartFile upload = new MockMultipartFile("file", "enroll.mp4", "video/mp4", new byte[]{1, 2, 3});
+        when(launcher.importVideo(eq("s1"), eq("enroll.mp4"), any(InputStream.class))).thenReturn("s1/enroll.mp4");
+        EnrollRunStatus running = new EnrollRunStatus("s1", EnrollState.RUNNING, null, "视频注册中", null, null);
+        when(launcher.start("s1", null, null, 8, 30, "s1/enroll.mp4")).thenReturn(running);
+        EnrollBindingController c = new EnrollBindingController(
+                props(root, algoOut), new IdentityBindingStore(props(root, algoOut), mapper),
+                mock(RosterService.class), mapper, launcher, mock(CloudIngestClient.class));
+
+        assertThat(c.importVideo("s1", upload, null, 8, 30).data()).isSameAs(running);
+        verify(launcher).start("s1", null, null, 8, 30, "s1/enroll.mp4");
+    }
+
+    @Test
+    void start_withVideo_passesItToLauncher(@TempDir Path root, @TempDir Path algoOut) {
+        EnrollLauncher launcher = mock(EnrollLauncher.class);
+        EnrollBindingController c = new EnrollBindingController(
+                props(root, algoOut), new IdentityBindingStore(props(root, algoOut), mapper),
+                mock(RosterService.class), mapper, launcher, mock(CloudIngestClient.class));
+
+        c.start(new StartEnrollRequest("s1", null, 60.0, null, 30, "s1/enroll.mp4"));
+
+        verify(launcher).start("s1", null, 60.0, null, 30, "s1/enroll.mp4");
+    }
+
+    @Test
+    void videos_listsImportDir(@TempDir Path root, @TempDir Path algoOut) {
+        EnrollLauncher launcher = mock(EnrollLauncher.class);
+        List<VideoFile> files = List.of(new VideoFile("s1/enroll.mp4", 3, OffsetDateTime.now()));
+        when(launcher.listVideos()).thenReturn(files);
+        EnrollBindingController c = new EnrollBindingController(
+                props(root, algoOut), new IdentityBindingStore(props(root, algoOut), mapper),
+                mock(RosterService.class), mapper, launcher, mock(CloudIngestClient.class));
+
+        assertThat(c.videos().data()).isEqualTo(files);
     }
 
 }
