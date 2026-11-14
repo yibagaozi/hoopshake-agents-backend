@@ -1,0 +1,140 @@
+package com.cnsportiot.cloud.repository;
+
+import java.time.OffsetDateTime;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import com.cnsportiot.contracts.enums.DominantHand;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import com.cnsportiot.cloud.domain.entity.Student;
+
+/** 学生档案仓储 */
+public interface StudentRepository extends JpaRepository<Student, UUID> {
+
+    Optional<Student> findByAccountId(UUID accountId);
+
+    Optional<Student> findByStudentNo(String studentNo);
+
+    boolean existsByStudentNo(String studentNo);
+
+    /** 学生展示名 */
+    @Query("SELECT a.displayName FROM Student s JOIN Account a ON a.id = s.accountId WHERE s.id = :sid")
+    Optional<String> findDisplayNameByStudentId(@Param("sid") UUID sid);
+
+    interface StudentBrief {
+        UUID getStudentId();
+        String getStudentNo();
+        String getDisplayName();
+        String getGradeBand();
+        DominantHand getDominantHand();
+        boolean isGalleryReady();
+    }
+
+    interface StudentDetail {
+        UUID getStudentId();
+        String getStudentNo();
+        String getDisplayName();
+        DominantHand getDominantHand();
+        java.math.BigDecimal getHeightCm();
+        java.math.BigDecimal getLegLengthCm();
+        String getGradeBand();
+        UUID getGalleryId();
+        Integer getGalleryVersion();
+        String getGalleryStatus();
+        Integer getGallerySampleCount();
+        OffsetDateTime getGalleryEnrolledAt();
+    }
+
+    /** 按学号查已存在的学生 */
+    interface StudentRef {
+        UUID getStudentId();
+        String getStudentNo();
+        String getDisplayName();
+    }
+
+    interface RosterRef {
+        UUID getStudentId();
+        String getStudentNo();
+        String getDisplayName();
+        DominantHand getDominantHand();
+    }
+
+    @Query("""
+            SELECT s.id          AS studentId,
+                   s.studentNo   AS studentNo,
+                   a.displayName AS displayName
+            FROM Student s
+                 JOIN Account a ON a.id = s.accountId
+            WHERE s.studentNo IN :studentNos
+            """)
+    List<StudentRef> findRefsByStudentNoIn(@Param("studentNos") Collection<String> studentNos);
+
+    @Query("""
+            SELECT s.id              AS studentId,
+                   s.studentNo       AS studentNo,
+                   a.displayName     AS displayName,
+                   s.dominantHand    AS dominantHand
+            FROM Student s
+                 JOIN Account a ON a.id = s.accountId
+            WHERE s.id IN :studentIds
+            """)
+    List<RosterRef> findRosterRefsByStudentIdIn(@Param("studentIds") Collection<UUID> studentIds);
+
+    @Query(value = """
+            SELECT student_id    AS studentId,
+                   student_no    AS studentNo,
+                   display_name  AS displayName,
+                   grade_band    AS gradeBand,
+                   dominant_hand AS dominantHand,
+                   gallery_ready AS galleryReady
+            FROM v_student_brief
+            WHERE (CAST(:kw AS text) IS NULL OR student_no LIKE concat(:kw, '%') OR display_name LIKE concat('%', :kw, '%'))
+            ORDER BY student_no
+            """,
+            countQuery = """
+            SELECT count(*)
+            FROM v_student_brief
+            WHERE (CAST(:kw AS text) IS NULL OR student_no LIKE concat(:kw, '%') OR display_name LIKE concat('%', :kw, '%'))
+            """,
+            nativeQuery = true)
+    Page<StudentBrief> findBriefsByKeyword(@Param("kw") String keyword, Pageable pageable);
+
+    @Query(value = """
+            SELECT s.id              AS studentId,
+                   s.student_no      AS studentNo,
+                   a.display_name    AS displayName,
+                   s.dominant_hand   AS dominantHand,
+                   s.height_cm       AS heightCm,
+                   s.leg_length_cm   AS legLengthCm,
+                   s.grade_band      AS gradeBand,
+                   g.id              AS galleryId,
+                   g.version         AS galleryVersion,
+                   g.status          AS galleryStatus,
+                   g.sample_count    AS gallerySampleCount,
+                   g.enrolled_at     AS galleryEnrolledAt
+            FROM student s
+                     JOIN account a ON a.id = s.account_id
+                     LEFT JOIN reid_gallery g ON g.id = s.active_gallery_id
+            WHERE s.id = :studentId
+              AND a.status <> 'DISABLED'
+            """,
+            nativeQuery = true)
+    Optional<StudentDetail> findActiveDetailByStudentId(@Param("studentId") UUID studentId);
+
+    @Query("""
+            SELECT s.id          AS studentId,
+                   s.studentNo   AS studentNo,
+                   a.displayName AS displayName
+            FROM Student s
+                 JOIN Account a ON a.id = s.accountId
+            WHERE s.id IN :studentIds
+            """)
+    List<StudentRef> findRefsByIdIn(@Param("studentIds") Collection<UUID> studentIds);
+}

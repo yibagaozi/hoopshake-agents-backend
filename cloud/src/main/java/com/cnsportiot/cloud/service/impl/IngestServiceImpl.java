@@ -1,0 +1,393 @@
+package com.cnsportiot.cloud.service.impl;
+
+import com.cnsportiot.cloud.domain.entity.*;
+import com.cnsportiot.cloud.dto.request.IngestRequests.*;
+import com.cnsportiot.cloud.dto.response.IngestDtos.*;
+import com.cnsportiot.cloud.repository.*;
+import com.cnsportiot.cloud.service.IngestService;
+import com.cnsportiot.contracts.enums.GalleryStatus;
+import com.cnsportiot.contracts.enums.SessionStatus;
+import com.cnsportiot.contracts.error.BusinessException;
+import com.cnsportiot.contracts.error.ErrorCode;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class IngestServiceImpl implements IngestService {
+
+    private final TrainingSessionRepository trainingSessionRepository;
+    private final ActionClipRepository actionClipRepository;
+    private final InstantFeedbackRepository instantFeedbackRepository;
+    private final ReidGalleryRepository reidGalleryRepository;
+    private final FaceIdentityBindingRepository faceIdentityBindingRepository;
+    private final StudentRepository studentRepository;
+    private final LessonEnrollmentRepository lessonEnrollmentRepository;
+    private final SessionAggregateRepository sessionAggregateRepository;
+
+    @Override
+    @Transactional
+    public IngestAckResponse upsertSession(UUID sessionId, UpsertSessionRequest request) {
+        var existing = trainingSessionRepository.findById(sessionId);
+
+        if (existing.isPresent()) {
+            TrainingSession session = existing.get();
+            if (request.status().ordinal() <= session.getStatus().ordinal()) {
+                return new IngestAckResponse(null, sessionId, false, true, session.getStatus());
+            }
+            session.setStatus(request.status());
+            applySessionFields(session, request);
+            trainingSessionRepository.save(session);
+            log.info("会话状态更新 sessionId={} status={}", sessionId, request.status());
+            return new IngestAckResponse(null, sessionId, true, false, request.status());
+        }
+
+        TrainingSession session = TrainingSession.builder()
+                .lessonId(request.lessonId())
+                .status(request.status())
+                .coordinateSystem(request.coordinateSystem())
+                .cameraConfigRef(request.cameraConfigRef())
+                .dataDir(request.dataDir())
+                .motionExportUri(request.motionExportUri())
+                .recordedAt(request.recordedAt())
+                .generatedAt(request.generatedAt())
+                .metadata(request.metadata())
+                .build();
+
+        // 使用指定的 sessionId 作为主键
+        try {
+            var idField = com.cnsportiot.cloud.domain.common.BaseEntity.class.getDeclaredField("id");
+            idField.setAccessible(true);
+            idField.set(session, sessionId);
+        } catch (ReflectiveOperationException e) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "无法设置 sessionId");
+        }
+
+        trainingSessionRepository.save(session);
+        log.info("会话已创建 sessionId={} lessonId={}", sessionId, request.lessonId());
+        return new IngestAckResponse(null, sessionId, true, false, request.status());
+    }
+
+    @Override
+    @Transactional
+    public BatchAckResponse ingestActionClips(ActionClipBatchRequest request) {
+        int accepted = 0;
+        int duplicated = 0;
+        List<RejectedItem> rejected = new ArrayList<>();
+        Map<String, UUID> idCache = new java.util.HashMap<>();
+        // 本批触及的 (student, action) 组,供派生复用(含重复项:其组在库里已有数据也要重算)
+        Set<AggKey> touched = new LinkedHashSet<>();
+
+        for (var item : request.items()) {
+            UUID studentId = resolveStudentId(item.studentId(), item.studentNo(), idCache);
+            if (studentId == null) {
+                rejected.add(new RejectedItem(
+                        idLabel(item.studentNo()) + "#" + item.clipIndex(),
+                        "无法解析学生身份(studentId/studentNo 均缺失或学号不存在)"));
+                continue;
+            }
+            touched.add(new AggKey(studentId, item.actionType()));
+
+            if (actionClipRepository.existsBySessionIdAndStudentIdAndClipIndex(
+                    request.sessionId(), studentId, item.clipIndex())) {
+                duplicated++;
+                continue;
+            }
+
+            try {
+                ActionClip clip = ActionClip.builder()
+                        .sessionId(request.sessionId())
+                        .studentId(studentId)
+                        .clipIndex(item.clipIndex())
+                        .actionType(item.actionType())
+                        .startMs(item.startMs())
+                        .endMs(item.endMs())
+                        .releaseMs(item.releaseMs())
+                        .anchorCamera(item.anchorCamera())
+                        .zoneId(item.zoneId())
+                        .phases(item.phases())
+                        .shotMade(item.shotMade())
+                        .score(item.score())
+                        .motionUri(item.motionUri())
+                        .motionRange(item.motionRange())
+                        .build();
+                actionClipRepository.save(clip);
+                accepted++;
+            } catch (DataIntegrityViolationException e) {
+                duplicated++;
+            } catch (Exception e) {
+                rejected.add(new RejectedItem(
+                        studentId + "#" + item.clipIndex(), e.getMessage()));
+            }
+        }
+
+        // L2 派生:重算本批触及的 (student, action) 的 session_aggregate(见 Gap-1)。
+        deriveAggregates(request.sessionId(), touched);
+
+        log.info("ActionClip 批量入库 sessionId={} accepted={} duplicated={} rejected={}",
+                request.sessionId(), accepted, duplicated, rejected.size());
+        return new BatchAckResponse(accepted, duplicated, rejected);
+    }
+
+    /** (student, action) 派生分组键。 */
+    private record AggKey(UUID studentId, String actionType) {}
+
+    /**
+     * 解析入库身份:优先 studentId(UUID);缺失时按 studentNo(学号)查 student 表。
+     * 都没有或学号查不到→返回 null(调用方拒绝该条)。同批同一学号只查一次。
+     */
+    private UUID resolveStudentId(UUID studentId, String studentNo, Map<String, UUID> cache) {
+        if (studentId != null) {
+            return studentId;
+        }
+        if (studentNo == null || studentNo.isBlank()) {
+            return null;
+        }
+        String key = studentNo.trim();
+        if (cache.containsKey(key)) {
+            return cache.get(key);
+        }
+        UUID resolved = studentRepository.findByStudentNo(key).map(Student::getId).orElse(null);
+        cache.put(key, resolved);
+        return resolved;
+    }
+
+    private static String idLabel(String studentNo) {
+        return studentNo == null || studentNo.isBlank() ? "?" : studentNo;
+    }
+
+    /**
+     * 从已入库的片段重算 session_aggregate(幂等 upsert)。逐 (student, action) 组独立 try/catch,
+     * 单组失败不影响其它组与已入库片段。派生规则见 {@link SessionAggregateDeriver}。
+     */
+    private void deriveAggregates(UUID sessionId, Set<AggKey> keys) {
+        for (AggKey k : keys) {
+            try {
+                List<ActionClip> all = actionClipRepository
+                        .findBySessionIdAndStudentIdOrderByClipIndex(sessionId, k.studentId());
+                if (all == null || all.isEmpty()) {
+                    continue;
+                }
+                List<SessionAggregateDeriver.ClipInput> inputs = all.stream()
+                        .filter(c -> k.actionType() != null && k.actionType().equalsIgnoreCase(c.getActionType()))
+                        .map(c -> new SessionAggregateDeriver.ClipInput(
+                                c.getShotMade(),
+                                SessionAggregateDeriver.extractReleaseAngles(c.getScore()),
+                                SessionAggregateDeriver.extractAnglesSource(c.getScore())))
+                        .toList();
+                if (inputs.isEmpty()) {
+                    continue;
+                }
+                Map<String, Object> stats = SessionAggregateDeriver.derive(inputs);
+                SessionAggregate agg = sessionAggregateRepository
+                        .findBySessionIdAndStudentIdAndActionType(sessionId, k.studentId(), k.actionType())
+                        .orElseGet(() -> SessionAggregate.builder()
+                                .sessionId(sessionId)
+                                .studentId(k.studentId())
+                                .actionType(k.actionType())
+                                .stats(stats)
+                                .build());
+                agg.setStats(stats);
+                sessionAggregateRepository.save(agg);
+            } catch (RuntimeException e) {
+                log.warn("派生 session_aggregate 失败 session={} student={} action={}: {}",
+                        sessionId, k.studentId(), k.actionType(), e.getMessage());
+            }
+        }
+    }
+
+    @Override
+    @Transactional
+    public BatchAckResponse ingestFeedback(InstantFeedbackBatchRequest request) {
+        int accepted = 0;
+        int duplicated = 0;
+        List<RejectedItem> rejected = new ArrayList<>();
+        Map<String, UUID> idCache = new java.util.HashMap<>();
+
+        for (var item : request.items()) {
+            if (instantFeedbackRepository.existsByEventId(item.eventId())) {
+                duplicated++;
+                continue;
+            }
+            UUID studentId = resolveStudentId(item.studentId(), item.studentNo(), idCache);
+            if (studentId == null) {
+                rejected.add(new RejectedItem(item.eventId(),
+                        "无法解析学生身份(studentId/studentNo 均缺失或学号不存在)"));
+                continue;
+            }
+
+            try {
+                InstantFeedback fb = InstantFeedback.builder()
+                        .eventId(item.eventId())
+                        .sessionId(request.sessionId())
+                        .studentId(studentId)
+                        .occurredAt(item.occurredAt())
+                        .timestampMs(item.timestampMs())
+                        .actionType(item.actionType())
+                        .checkpointId(item.checkpointId())
+                        .severity(item.severity())
+                        .cueText(item.cueText())
+                        .measured(item.measured())
+                        .confidence(item.confidence())
+                        .sourceCamera(item.sourceCamera())
+                        .build();
+                instantFeedbackRepository.save(fb);
+                accepted++;
+            } catch (DataIntegrityViolationException e) {
+                duplicated++;
+            } catch (Exception e) {
+                rejected.add(new RejectedItem(item.eventId(), e.getMessage()));
+            }
+        }
+
+        log.info("反馈批量入库 accepted={} duplicated={} rejected={}", accepted, duplicated, rejected.size());
+        return new BatchAckResponse(accepted, duplicated, rejected);
+    }
+
+    @Override
+    @Transactional
+    public GalleryRegisteredResponse registerGallery(RegisterGalleryRequest request) {
+        // 将旧版 gallery 置为 SUPERSEDED
+        reidGalleryRepository.findByStudentIdAndStatus(request.studentId(), GalleryStatus.ACTIVE)
+                .ifPresent(old -> {
+                    old.setStatus(GalleryStatus.SUPERSEDED);
+                    reidGalleryRepository.save(old);
+                });
+
+        int version = request.version() != null ? request.version() : 1;
+
+        ReidGallery gallery = ReidGallery.builder()
+                .studentId(request.studentId())
+                .version(version)
+                .storageUri(request.storageUri())
+                .faceModel(request.faceModel())
+                .bodyModel(request.bodyModel())
+                .faceDim(request.faceDim())
+                .bodyDim(request.bodyDim())
+                .sampleCount(request.sampleCount())
+                .enrolledCamera(request.enrolledCamera())
+                .enrolledAt(request.enrolledAt())
+                .build();
+        reidGalleryRepository.save(gallery);
+
+        // 更新 student.activeGalleryId
+        studentRepository.findById(request.studentId()).ifPresent(student -> {
+            student.setActiveGalleryId(gallery.getId());
+            studentRepository.save(student);
+        });
+
+        log.info("Gallery 已注册 studentId={} version={}", request.studentId(), version);
+        return new GalleryRegisteredResponse(gallery.getId(), request.studentId(), version, gallery.getStatus());
+    }
+
+    @Override
+    @Transactional
+    public FaceBindingSyncedResponse syncFaceBinding(SyncFaceBindingRequest request) {
+        Student student = request.studentId() != null
+                ? studentRepository.findById(request.studentId()).orElse(null)
+                : studentRepository.findByStudentNo(request.studentNo()).orElse(null);
+        if (student == null || !student.getStudentNo().equals(request.studentNo())) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "学生身份不存在或学号不匹配");
+        }
+
+        FaceIdentityBinding byGlobalId = faceIdentityBindingRepository
+                .findByGlobalId(request.globalId()).orElse(null);
+        if (byGlobalId != null && !student.getId().equals(byGlobalId.getStudentId())) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT, "global_id 已绑定其他学生");
+        }
+
+        FaceIdentityBinding binding = byGlobalId != null ? byGlobalId
+                : faceIdentityBindingRepository.findByStudentId(student.getId()).orElse(null);
+        if (binding == null) {
+            binding = FaceIdentityBinding.builder()
+                    .studentId(student.getId())
+                    .studentNo(student.getStudentNo())
+                    .globalId(request.globalId())
+                    .localId(request.localId())
+                    .lessonId(request.lessonId())
+                    .edgeId(request.edgeId())
+                    .boundAt(request.boundAt() == null ? OffsetDateTime.now() : request.boundAt())
+                    .build();
+        } else {
+            binding.setStudentId(student.getId());
+            binding.setStudentNo(student.getStudentNo());
+            binding.setGlobalId(request.globalId());
+            binding.setLocalId(request.localId());
+            binding.setLessonId(request.lessonId());
+            binding.setEdgeId(request.edgeId());
+            binding.setBoundAt(request.boundAt() == null ? OffsetDateTime.now() : request.boundAt());
+        }
+        faceIdentityBindingRepository.save(binding);
+
+        log.info("人脸身份绑定已同步 studentId={} studentNo={} globalId={}",
+                student.getId(), student.getStudentNo(), request.globalId());
+        return new FaceBindingSyncedResponse(student.getId(), student.getStudentNo(), request.globalId());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public GalleryPullResponse pullGallery(UUID lessonId) {
+        if (lessonId == null) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "lessonId 不能为空");
+        }
+
+        List<UUID> studentIds = lessonEnrollmentRepository.findStudentIdsByLessonId(lessonId);
+        if (studentIds.isEmpty()) {
+            return new GalleryPullResponse(lessonId, List.of());
+        }
+
+        var galleries = reidGalleryRepository.findByStudentIdInAndStatus(studentIds, GalleryStatus.ACTIVE);
+        var galleryMap = new java.util.HashMap<UUID, ReidGallery>();
+        galleries.forEach(g -> galleryMap.put(g.getStudentId(), g));
+
+        var faceBindings = faceIdentityBindingRepository.findByStudentIdIn(studentIds);
+        var faceBoundIds = faceBindings.stream()
+                .map(FaceIdentityBinding::getStudentId)
+                .collect(java.util.stream.Collectors.toSet());
+
+        var rosterRefs = studentRepository.findRosterRefsByStudentIdIn(studentIds).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        StudentRepository.RosterRef::getStudentId, ref -> ref, (a, b) -> a));
+
+        List<GalleryPullStudent> students = new ArrayList<>();
+        for (UUID studentId : studentIds) {
+            var roster = rosterRefs.get(studentId);
+            if (roster == null) continue;
+
+            GalleryRef ref = null;
+            ReidGallery g = galleryMap.get(studentId);
+            if (g != null) {
+                ref = new GalleryRef(g.getId(), g.getVersion(), g.getStorageUri(), g.getFaceModel(), g.getBodyModel());
+            }
+
+            students.add(new GalleryPullStudent(
+                    studentId, roster.getStudentNo(), roster.getDisplayName(),
+                    faceBoundIds.contains(studentId), roster.getDominantHand(), ref));
+        }
+
+        return new GalleryPullResponse(lessonId, students);
+    }
+
+    private void applySessionFields(TrainingSession session, UpsertSessionRequest request) {
+        if (request.coordinateSystem() != null) session.setCoordinateSystem(request.coordinateSystem());
+        if (request.cameraConfigRef() != null) session.setCameraConfigRef(request.cameraConfigRef());
+        if (request.dataDir() != null) session.setDataDir(request.dataDir());
+        if (request.motionExportUri() != null) session.setMotionExportUri(request.motionExportUri());
+        if (request.recordedAt() != null) session.setRecordedAt(request.recordedAt());
+        if (request.generatedAt() != null) session.setGeneratedAt(request.generatedAt());
+        if (request.metadata() != null) session.setMetadata(request.metadata());
+    }
+
+}

@@ -1,3 +1,131 @@
 spring:
   application:
     name: cloud
+  lifecycle:
+    timeout-per-shutdown-phase: ${SHUTDOWN_GRACE:20s}
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:101.43.233.17}:5432/${DB_NAME}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: ${DB_POOL_CONN_TIMEOUT_MS:30000}
+      # DB 侧慢查询兜底:每连接初始化时设 statement_timeout,防单条慢查询长期占用连接
+      connection-init-sql: SET statement_timeout = '${DB_STATEMENT_TIMEOUT:30s}'
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+  ai:
+    openai:
+      api-key: ${ZHIPUAI_API_KEY}
+      base-url: https://open.bigmodel.cn/api/paas/v4
+      chat:
+        model: glm-5.2
+        timeout: 5m
+      embedding:
+        model: embedding-3
+        dimensions: 1024
+        timeout: 60s
+    vectorstore:
+      pgvector:
+        dimensions: 1024
+        distance-type: COSINE_DISTANCE
+
+server:
+  shutdown: graceful
+
+# 可观测(Actuator / Micrometer)
+# 只暴露必要端点(health/info/metrics/prometheus),不开 env/beans/configprops 等泄密端点
+# health 分组:liveness/readiness 供容器探针;prometheus 供指标抓取
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+      group:
+        readiness:
+          include: db,redis
+  metrics:
+    tags:
+      application: ${spring.application.name:cloud}
+
+hoopshake:
+  jwt:
+    secret: ${JWT_SECRET:hoopshake-basketball-coach-agent-system-for-beijing-university-of-posts-and-telecommunications}
+  ingest:
+    service-token: ${INGEST_SERVICE_TOKEN:hoopshake-local-ingest-token}
+  register:
+    enabled: true
+    invite-code: ${REGISTER_INVITE_CODE:hoopshake-invite}
+  cloud:
+    cors:
+      allowed-origins:
+        - https://*.cnsportiot.com
+        - http://localhost:5173
+        - http://127.0.0.1:5173
+      path-patterns:
+        - /api/**
+      allow-credentials: true
+      max-age-seconds: 3600
+  student:
+    # 初始密码:留空 = 以学号本身为初始密码。建档与教师重置密码都用这个,不支持教师手动设置
+    initial-password: ${INITIAL_PASSWORD:}
+    # 激活验证码:全局一个,教师线下告知学生。留空 = 不校验(激活时 verifyCode 可不传)
+    activation-code: ${STUDENT_ACTIVATION_CODE:}
+  ops:
+    # 监控看板:后端只暴露数据源 /actuator/prometheus 供 Grafana 采集,不自己出图
+    # 留空 = 未配置,接口回 configured=false,前端隐藏监控入口
+    grafana:
+      embed-url: ${GRAFANA_EMBED_URL:}
+      dashboard-url: ${GRAFANA_DASHBOARD_URL:}
+      embed-height: ${GRAFANA_EMBED_HEIGHT:600}
+  agent:
+    enabled: ${HOOPSHAKE_AGENT_ENABLED:true}    # 关闭时不装配 LLM/向量,对话端点降级 50310
+    max-retries: ${GLM_MAX_RETRIES:2}            # 瞬时错误(超时/5xx/429)同模型重试次数(降级链第①层)
+    tiers:
+      fast:                                      # 意图分类 / RAG query 改写 / 标题 / 建议追问
+        model: ${GLM_TIER_FAST:glm-5.2}
+        reasoning: off
+      standard:                                  # 学生对话主回答(锚定训练)
+        model: ${GLM_TIER_STANDARD:glm-5.2}
+        reasoning: high
+      advanced:                                  # 备课 / Reflection 评估 / 损伤·复杂升档
+        model: ${GLM_TIER_ADVANCED:glm-5.2}
+        reasoning: max
+    fallback:                                    # 主调用故障时的跨模型兜底(降级链第②层)
+      model: ${GLM_FALLBACK_MODEL:glm-5-turbo}
+      reasoning: off
+    chunk:                                       # 切分(8.3)
+      max-tokens: 450
+      overlap-tokens: 40
+      min-chunk-chars: 120
+    rag:                                         # 召回(8.5)
+      top-k: 4
+      similarity-threshold: 0.5
+      max-injected-open: 2
+      max-injected-structured: 4
+    tools:
+      expose-in-chat: true                                # 对话是否向模型开放工具(function-calling)
+      debug-enabled: ${HOOPSHAKE_AGENT_TOOLS_DEBUG:false}  # 调试直调端点(不经 LLM),测试期打开
+      max-result-items: 50
+    router:
+      llm-classify: true                                    # 规则拿不准时用 FAST 档做一次意图分类;关掉走 GENERAL 兜底
+    budget:
+      context-tokens: ${GLM_CONTEXT_TOKENS:128000}          # 上下文预算(token 估算口径),按账号实际上下文窗口调
+      reserve-output-tokens: 2048
+    quota:                                                  # 单账号周用量上限(自然周,周一 00:00 清零)
+      enabled: ${AI_QUOTA_ENABLED:true}                     # 关掉只停止拦截,用量仍然记账(审计不受影响)
+      zone: ${AI_QUOTA_ZONE:Asia/Shanghai}
+      weekly-tokens-student: ${AI_QUOTA_WEEKLY_STUDENT:300000}
+      weekly-tokens-teacher: ${AI_QUOTA_WEEKLY_TEACHER:1000000}
+      weekly-tokens-admin: ${AI_QUOTA_WEEKLY_ADMIN:0}       # 0 = 不限
+      warn-ratio: ${AI_QUOTA_WARN_RATIO:0.8}                # 用到该比例前端出黄条提示

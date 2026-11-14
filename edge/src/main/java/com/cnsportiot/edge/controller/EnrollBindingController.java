@@ -1,0 +1,266 @@
+package com.cnsportiot.edge.controller;
+
+import com.cnsportiot.contracts.common.ApiResponse;
+import com.cnsportiot.contracts.error.BusinessException;
+import com.cnsportiot.contracts.error.ErrorCode;
+import com.cnsportiot.edge.config.EdgeProperties;
+import com.cnsportiot.edge.cloudsync.CloudIngestClient;
+import com.cnsportiot.edge.domain.RosterEntry;
+import com.cnsportiot.edge.identity.EnrollLauncher;
+import com.cnsportiot.edge.identity.EnrollLauncher.EnrollRunStatus;
+import com.cnsportiot.edge.identity.EnrollLauncher.VideoFile;
+import com.cnsportiot.edge.identity.IdentityBindingStore;
+import com.cnsportiot.edge.identity.IdentityBindingStore.Binding;
+import com.cnsportiot.edge.service.RosterService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * 现场人脸注册绑定(首次运行:采集人脸→看脸输学号→关联 UUID→本地缓存,不上云)。
+ *
+ * <p>算法 {@code run_live_ws.py enroll} 已把每人正面注册成 {@code stu_XX} 并写
+ * {@code {algoOutputsDir}/{session}/enrollment.json} + 缩略图 {@code enroll_preview/{stu}.jpg}。
+ * 本控制器:①列出算法刚注册的 stu_XX(带缩略图链接)供教师看脸;②教师逐个输学号,edge 回填 studentId 并缓存。
+ */
+@RestController
+@RequestMapping("/local/enroll")
+public class EnrollBindingController {
+
+    private static final Logger log = LoggerFactory.getLogger(EnrollBindingController.class);
+
+    private final EdgeProperties props;
+    private final IdentityBindingStore bindings;
+    private final RosterService rosterService;
+    private final ObjectMapper objectMapper;
+    private final EnrollLauncher enrollLauncher;
+    private final CloudIngestClient cloudClient;
+
+    public EnrollBindingController(EdgeProperties props, IdentityBindingStore bindings,
+                                   RosterService rosterService, ObjectMapper objectMapper,
+                                   EnrollLauncher enrollLauncher, CloudIngestClient cloudClient) {
+        this.props = props;
+        this.bindings = bindings;
+        this.rosterService = rosterService;
+        this.objectMapper = objectMapper;
+        this.enrollLauncher = enrollLauncher;
+        this.cloudClient = cloudClient;
+    }
+
+    /**
+     * 开始现场人脸采集:edge 拉起算法 enroll 进程(异步),立即返回 RUNNING。
+     * {@code session} 约定 = 课程 id;算法据此把注册产物写 {@code {algoOutputsDir}/{session}/},
+     * 前端轮询 {@link #status} 转 SUCCEEDED 后用同一 session 调 {@link #identities}。
+     */
+    @PostMapping("/start")
+    public ApiResponse<EnrollRunStatus> start(@Valid @RequestBody StartEnrollRequest request) {
+        return ApiResponse.ok(enrollLauncher.start(
+                request.session(), request.enrollCamera(), request.seconds(),
+                request.sampleHz(), request.expectedPersons(), request.video()));
+    }
+
+    /**
+     * 从本地导入视频注册:上传视频(multipart {@code file})→ 存入导入目录 {@code {session}/} → 拉起视频注册(异步),
+     * 之后与直播采集一样轮询 {@link #status}、拉 {@link #identities}。{@code seconds} 为只处理前 N 秒(默认整段)。
+     */
+    @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<EnrollRunStatus> importVideo(@RequestParam String session,
+                                                    @RequestPart("file") MultipartFile file,
+                                                    @RequestParam(required = false) Double seconds,
+                                                    @RequestParam(required = false) Integer sampleHz,
+                                                    @RequestParam(required = false) Integer expectedPersons) {
+        String video;
+        try (InputStream in = file.getInputStream()) {
+            video = enrollLauncher.importVideo(session, file.getOriginalFilename(), in);
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "读取上传视频失败: " + e.getMessage());
+        }
+        return ApiResponse.ok(enrollLauncher.start(session, null, seconds, sampleHz, expectedPersons, video));
+    }
+
+    /** 导入目录里可用于注册的视频;{@code video} 字段可直接作 {@code /start} 的 video。 */
+    @GetMapping("/videos")
+    public ApiResponse<List<VideoFile>> videos() {
+        return ApiResponse.ok(enrollLauncher.listVideos());
+    }
+
+    /** 采集状态轮询:RUNNING/SUCCEEDED/FAILED/NONE(从未跑过)。前端据此在 SUCCEEDED 后拉注册结果。 */
+    @GetMapping("/status")
+    public ApiResponse<EnrollRunStatus> status(@RequestParam String session) {
+        return ApiResponse.ok(enrollLauncher.status(session));
+    }
+
+    /** 列出算法某注册 session 采到的人(stu_XX + 是否有缩略图),供注册页看脸绑学号。 */
+    @GetMapping("/identities")
+    public ApiResponse<EnrolledIdentities> identities(@RequestParam String session) {
+        Path meta = algoSessionDir(session).resolve("enrollment.json");
+        if (!Files.exists(meta)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "算法注册产物不存在: " + meta);
+        }
+        Map<String, Object> m;
+        try {
+            m = objectMapper.readValue(Files.readString(meta), new TypeReference<>() { });
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "注册产物解析失败: " + e.getMessage());
+        }
+        Path previewDir = algoSessionDir(session).resolve("enroll_preview");
+        List<EnrolledPerson> people = new ArrayList<>();
+        Object identities = m.get("identities");
+        if (identities instanceof List<?> list && !list.isEmpty()) {
+            // 新版:算法给了 {local_id, global_id} → 绑定当场即可建立跨课次映射
+            for (Object o : list) {
+                if (o instanceof Map<?, ?> im) {
+                    String localId = asStr(im.get("local_id"));
+                    if (localId == null) {
+                        continue;
+                    }
+                    people.add(enrolled(session, localId, asStr(im.get("global_id")),
+                            Files.exists(previewDir.resolve(localId + ".jpg"))));
+                }
+            }
+        } else {
+            // 旧版:只有 student_ids(无 global_id)→ global_id 于 run 时补学
+            @SuppressWarnings("unchecked")
+            List<String> ids = (List<String>) m.getOrDefault("student_ids", List.of());
+            for (String id : ids) {
+                people.add(enrolled(session, id, null, Files.exists(previewDir.resolve(id + ".jpg"))));
+            }
+        }
+        return ApiResponse.ok(new EnrolledIdentities(session, String.valueOf(m.get("enroll_camera")), people));
+    }
+
+    /** 缩略图(注册页看脸用)。 */
+    @GetMapping("/thumbnail")
+    public ResponseEntity<byte[]> thumbnail(@RequestParam String session, @RequestParam String id) {
+        Path jpg = algoSessionDir(session).resolve("enroll_preview").resolve(id + ".jpg");
+        if (!Files.exists(jpg)) {
+            return ResponseEntity.notFound().build();
+        }
+        try {
+            byte[] bytes = Files.readAllBytes(jpg);
+            return ResponseEntity.ok()
+                    .contentType(MediaType.IMAGE_JPEG)
+                    .cacheControl(CacheControl.noCache())
+                    .body(bytes);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * 教师看脸输学号,批量绑定。edge 从名单回填 studentId/姓名并按 {@code session(=课程id)} 持久缓存
+     * (即使算法没给 global_id 也落盘,重开注册页据此回显);有 global_id 时另建跨课次映射。
+     */
+    @PostMapping("/bind")
+    public ApiResponse<List<BoundPerson>> bind(@Valid @RequestBody BindRequest request) {
+        List<BoundPerson> out = new ArrayList<>();
+        for (BindItem it : request.bindings()) {
+            RosterEntry entry = rosterService.find(it.studentNo()).orElse(null);
+            String studentId = entry != null && entry.studentId() != null ? entry.studentId().toString() : null;
+            String displayName = entry != null ? entry.displayName() : null;
+            Binding b = new Binding(it.studentNo(), studentId, displayName);
+            bindings.bind(request.session(), it.localId(), it.globalId(), b);
+            boolean cloudSynced = syncToCloud(request.session(), it, studentId, entry != null);
+            out.add(new BoundPerson(it.localId(), it.globalId(), it.studentNo(), studentId,
+                    displayName, entry != null, cloudSynced));
+        }
+        return ApiResponse.ok(out);
+    }
+
+    /** 当前持久人脸绑定(global_id → 学号),排查/回显用。 */
+    @GetMapping("/bindings")
+    public ApiResponse<Map<String, Binding>> current() {
+        return ApiResponse.ok(bindings.persistentBindings());
+    }
+
+    /** 组一条注册人:附上该会话内该 stu_XX 的已绑定学号/姓名(重开注册页据此回显“已绑定”)。 */
+    private EnrolledPerson enrolled(String session, String localId, String globalId, boolean hasThumbnail) {
+        Binding b = bindings.forSessionLocal(session, localId);
+        if (b == null && globalId != null) {
+            b = bindings.forGlobal(globalId);
+        }
+        return new EnrolledPerson(localId, globalId, hasThumbnail,
+                b != null, b == null ? null : b.studentNo(), b == null ? null : b.displayName());
+    }
+
+    private Path algoSessionDir(String session) {
+        return Path.of(props.getLive().getAlgoOutputsDir(), session);
+    }
+
+    private boolean syncToCloud(String session, BindItem item, String studentId, boolean matchedInRoster) {
+        if (!matchedInRoster || item.globalId() == null || item.globalId().isBlank()) {
+            return false;
+        }
+        try {
+            cloudClient.syncFaceBinding(parseLessonId(session), item.localId(), item.globalId(),
+                    studentId, item.studentNo(), props.getEdgeId());
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("人脸绑定上云失败 session={} studentNo={} globalId={}: {}",
+                    session, item.studentNo(), item.globalId(), e.getMessage());
+            return false;
+        }
+    }
+
+    private static UUID parseLessonId(String session) {
+        try {
+            return UUID.fromString(session);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static String asStr(Object v) {
+        return v == null ? null : String.valueOf(v);
+    }
+
+    // ---- DTO ----
+
+    /**
+     * 开始采集入参。session 必填(= 课程 id);其余可空,空则用 hoopshake.edge.enroll.* 默认。
+     * video 非空 = 从导入目录里的该视频注册(取值见 {@code GET /local/enroll/videos}),此时 seconds 为只处理前 N 秒。
+     */
+    public record StartEnrollRequest(
+            @NotBlank String session,
+            String enrollCamera,
+            Double seconds,
+            Integer sampleHz,
+            Integer expectedPersons,
+            String video) {}
+
+    public record EnrolledIdentities(String session, String enrollCamera, List<EnrolledPerson> people) {}
+
+    /** bound=已绑学号;boundStudentNo/boundDisplayName 为已绑内容(未绑为 null),供注册页回显。 */
+    public record EnrolledPerson(String localId, String globalId, boolean hasThumbnail,
+                                 boolean bound, String boundStudentNo, String boundDisplayName) {}
+
+    /** session 必填(= 课程 id),与拉 identities 用的同一个,决定绑定存到哪个会话名下。 */
+    public record BindRequest(@NotBlank String session, @NotEmpty @Valid List<BindItem> bindings) {}
+
+    public record BindItem(
+            @NotBlank String localId,
+            String globalId,
+            @NotBlank String studentNo) {}
+
+    public record BoundPerson(String localId, String globalId, String studentNo,
+                              String studentId, String displayName, boolean matchedInRoster,
+                              boolean cloudSynced) {}
+}
